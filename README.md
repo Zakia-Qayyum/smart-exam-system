@@ -1,36 +1,31 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Exam Scheduling & Invigilation Management System
 
-## Getting Started
+Frontend for a Smart Exam Scheduling & Invigilation Management System themed after Air University's web portal identity.
 
-First, run the development server:
+## Stack
+
+- React 19 + Vite 8 + TypeScript
+- Tailwind CSS v4 (design tokens via `@theme` in `src/index.css`)
+- React Router
+- Zustand (toast state)
+- shadcn-style primitive components (`class-variance-authority` + `tailwind-merge`)
+
+## Design tokens
+
+- Navy `#0B2447`, Deep Navy `#071A33`, Gold `#C9A227`
+- Success `#1E8E5A`, Danger `#D64545`, Warning `#E0A800`
+- Background `#F4F6F9`, card white `#FFFFFF` with `#E3E7EE` border
+- Radius scale: sm 6px / md 10px / lg 16px · Inter typeface
+
+## Component library
+
+Browse every primitive at `/components`: Button (variants + loading), Input (floating label + error), searchable Select, Badge/StatusChip, Card, Modal, ConfirmDialog, Toast, sortable DataTable with pagination, Tabs, Avatar, EmptyState, Skeleton.
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev     # http://localhost:5173
+npm run build
+npm run lint
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

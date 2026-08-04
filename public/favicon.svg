@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0B2447"/>
+  <path d="M32 10l18 8v13c0 12-7.5 19.5-18 23C21.5 50.5 14 43 14 31V18l18-8z" fill="none" stroke="#C9A227" stroke-width="3.5"/>
+  <text x="32" y="41" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="800" fill="#C9A227" text-anchor="middle">AU</text>
+</svg>
