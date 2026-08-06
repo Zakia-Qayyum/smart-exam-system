@@ -1,40 +1,54 @@
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
+import type { ComponentType } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Toaster } from '@/components/ui/toaster'
+import { AppLayout } from '@/components/layout/app-layout'
+import { RequireAuth } from '@/components/layout/require-auth'
+import { ModulePlaceholder } from '@/components/layout/module-placeholder'
+import { homeByRole, PROTECTED_PATHS, routeAccess } from '@/config/roles'
+import { useAuthStore } from '@/stores/auth-store'
+import { LoginPage } from '@/pages/login'
+import { DashboardPage } from '@/pages/dashboard'
+import { NotificationsPage } from '@/pages/notifications'
 import { ComponentsShowcase } from '@/pages/components-showcase'
+
+const dedicatedPages: Record<string, ComponentType> = {
+  '/dashboard': DashboardPage,
+  '/notifications': NotificationsPage,
+}
+
+function HomeRedirect() {
+  const user = useAuthStore((s) => s.user)
+  return <Navigate to={user ? homeByRole[user.role] : '/login'} replace />
+}
 
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-surface">
-        <header className="sticky top-0 z-40 border-b border-navy-deep bg-navy text-white">
-          <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
-            <Link to="/components" className="flex items-center gap-3 focus-visible:outline-none">
-              <img src="/favicon.svg" alt="" className="h-9 w-9" />
-              <span className="leading-tight">
-                <span className="block text-sm font-black tracking-tight">Smart Exam System</span>
-                <span className="block text-[11px] font-semibold uppercase tracking-widest text-gold">
-                  Air University
-                </span>
-              </span>
-            </Link>
-            <nav className="flex items-center gap-1 text-sm">
-              <Link
-                to="/components"
-                className="rounded-md px-3 py-1.5 font-semibold text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-              >
-                Components
-              </Link>
-            </nav>
-          </div>
-        </header>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/components" element={<ComponentsShowcase />} />
 
-        <main>
-          <Routes>
-            <Route path="/" element={<Navigate to="/components" replace />} />
-            <Route path="/components" element={<ComponentsShowcase />} />
-            <Route path="*" element={<Navigate to="/components" replace />} />
-          </Routes>
-        </main>
-      </div>
+        <Route element={<AppLayout />}>
+          {PROTECTED_PATHS.map((path) => {
+            const Page = dedicatedPages[path] ?? ModulePlaceholder
+            return (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <RequireAuth allowedRoles={routeAccess[path]}>
+                    <Page />
+                  </RequireAuth>
+                }
+              />
+            )
+          })}
+        </Route>
+
+        <Route path="/" element={<HomeRedirect />} />
+        <Route path="*" element={<HomeRedirect />} />
+      </Routes>
+      <Toaster />
     </BrowserRouter>
   )
 }

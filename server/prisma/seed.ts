@@ -314,7 +314,6 @@ async function main() {
   const slotList = await prisma.timeSlot.findMany({ orderBy: { label: 'asc' } })
 
   // 9. Schedule entries — spread over 5 days × 4 slots so overlaps exist
-  const slotKeys = slotList.map((_, i) => i)
   const scheduledAt = new Date(CYCLE_START)
   const entries: Array<{
     exam_cycle_id: string
