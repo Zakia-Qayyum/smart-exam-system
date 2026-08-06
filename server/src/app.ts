@@ -3,7 +3,9 @@ import cors from 'cors'
 import { pinoHttp } from 'pino-http'
 import { env } from './config/env.js'
 import { logger } from './lib/logger.js'
+import { ipRateLimit } from './lib/rate-limit.js'
 import { healthRouter } from './routes/health.js'
+import { authRouter } from './routes/auth.js'
 
 export function createApp() {
   const app = express()
@@ -28,6 +30,7 @@ export function createApp() {
   })
 
   app.use('/api/health', healthRouter)
+  app.use('/api/auth', ipRateLimit(), authRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })

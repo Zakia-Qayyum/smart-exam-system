@@ -13,25 +13,65 @@ datasource db {
 // ── Identity ──────────────────────────────────────────────────────────────
 
 model User {
-  id                  String   @id @default(cuid())
-  name                String
-  email               String   @unique
-  password_hash       String
-  role                String // admin | coordinator | faculty | invigilator | student
-  department_id       String?
-  status              String   @default("active") // active | disabled
-  must_change_password Boolean @default(false)
-  created_at          DateTime @default(now())
+  id                    String    @id @default(cuid())
+  name                  String
+  email                 String    @unique
+  password_hash         String
+  role                  String // admin | coordinator | dept-coordinator | hod | faculty | invigilator | student
+  department_id         String?
+  status                String    @default("active") // active | disabled
+  must_change_password  Boolean   @default(false)
+  mfa_enabled           Boolean   @default(true)
+  failed_login_attempts Int       @default(0)
+  locked_until          DateTime?
+  password_changed_at   DateTime?
+  last_login_at         DateTime?
+  created_at            DateTime  @default(now())
 
-  department         Department?           @relation(fields: [department_id], references: [id], onDelete: SetNull)
-  invigilator        Invigilator?
-  created_entries    ScheduleEntry[]       @relation("EntryCreator")
-  raised_requests    OverrideRequest[]     @relation("OverrideRaisedBy")
-  approved_requests  OverrideRequest[]     @relation("OverrideApprovedBy")
-  audit_logs         AuditLog[]            @relation("AuditPerformer")
-  notifications      Notification[]
+  department            Department?           @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  invigilator           Invigilator?
+  created_entries       ScheduleEntry[]       @relation("EntryCreator")
+  raised_requests       OverrideRequest[]     @relation("OverrideRaisedBy")
+  approved_requests     OverrideRequest[]     @relation("OverrideApprovedBy")
+  audit_logs            AuditLog[]            @relation("AuditPerformer")
+  notifications         Notification[]
+  refresh_tokens        RefreshToken[]
+  password_reset_tokens PasswordResetToken[]
 
   @@map("users")
+}
+
+// ── Auth sessions & password reset ────────────────────────────────────────
+
+model RefreshToken {
+  id               String    @id @default(cuid())
+  user_id          String
+  token_hash       String    @unique
+  expires_at       DateTime
+  revoked_at       DateTime?
+  replaced_by_hash String?
+  user_agent       String?
+  ip_address       String?
+  created_at       DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  user_id    String
+  token_hash String    @unique
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("password_reset_tokens")
 }
 
 model Department {

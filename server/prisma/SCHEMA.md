@@ -38,6 +38,11 @@ returned as `ISO-8601` strings in JSON.
 | `department_id` | String? | null for `admin` |
 | `status` | String | default `active` |
 | `must_change_password` | Boolean | default `false` |
+| `mfa_enabled` | Boolean | default `true`; `false` = no OTP step on login |
+| `failed_login_attempts` | Int | default `0`; reset on successful login |
+| `locked_until` | DateTime? | null unless locked (5 bad logins or 3 bad OTPs → 15 min) |
+| `password_changed_at` | DateTime? | |
+| `last_login_at` | DateTime? | |
 | `created_at` | DateTime | |
 
 ### Department → table `departments`
@@ -151,12 +156,26 @@ Indexed on `(exam_cycle_id, status)` and `student_id`.
 
 ---
 
+## Auth tokens (server-internal, never exposed)
+
+### RefreshToken → table `refresh_tokens`
+`id`, `user_id` (FK, cascade delete), `token_hash` (unique), `expires_at` (14 days), `revoked_at` (DateTime?), `replaced_by_hash` (String?, set on rotation), `user_agent` (String?), `ip_address` (String?), `created_at`. Persists across server restarts.
+
+### PasswordResetToken → table `password_reset_tokens`
+`id`, `user_id` (FK, cascade delete), `token_hash` (unique), `expires_at` (30 min), `used_at` (DateTime?), `created_at`.
+
+---
+
 ## Seed data (npm run db:seed — server/)
 - 5 departments, 8 programs, 32 courses, 32 sections (one per course).
 - 200 students (~5 enrollments each) → 964 enrollments.
 - 12 rooms, 1 exam cycle (Fall-2026, Aug 10–14), 4 time slots/day.
 - 32 schedule entries with **deliberate overlaps** → 241 clash records (same_slot/same_day).
 - 20 invigilators, 64 invigilator assignments, 3 override requests, notifications, audit log.
-- Demo login: `admin@airuni.edu.pk` / `Password@123` (coordinator: `coordinator@airuni.edu.pk`).
+- Demo logins (password `Password@123`):
+  - `admin@airuni.edu.pk` — admin, MFA on.
+  - `coordinator@airuni.edu.pk` — coordinator, MFA on.
+  - `usman.tariq@airuni.edu.pk` — faculty → frontend role `invigilator`, forced password change on first login.
+  - `au2024cs042@airuni.edu.pk` — student, `mfa_enabled = false` (no OTP step).
 
 All reference/status fields use the exact strings above — map them to UI badges/colors 1:1.

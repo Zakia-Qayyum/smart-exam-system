@@ -188,6 +188,7 @@ async function main() {
       role: 'admin',
       status: 'active',
       must_change_password: false,
+      mfa_enabled: true,
     },
   })
 
@@ -199,6 +200,30 @@ async function main() {
       role: 'coordinator',
       department_id: deptMap.get('CS'),
       status: 'active',
+      must_change_password: false,
+      mfa_enabled: true,
+    },
+  })
+
+  // Demo invigilator with a forced password change on first login.
+  const demoInvigilator = await prisma.user.create({
+    data: {
+      name: 'Usman Tariq',
+      email: 'usman.tariq@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'faculty',
+      department_id: deptMap.get('CS'),
+      status: 'active',
+      must_change_password: true,
+      mfa_enabled: true,
+    },
+  })
+  await prisma.invigilator.create({
+    data: {
+      user_id: demoInvigilator.id,
+      department_id: deptMap.get('CS')!,
+      max_assignments_per_cycle: 5,
+      specialization_tags: ['databases', 'web', 'testing'],
     },
   })
 
@@ -265,6 +290,20 @@ async function main() {
   }
   await prisma.student.createMany({ data: studentRows })
   const students = await prisma.student.findMany()
+
+  // Demo student login account (no MFA, to exercise the direct-token path).
+  await prisma.user.create({
+    data: {
+      name: 'Fatima Noor',
+      email: 'au2024cs042@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'student',
+      department_id: deptMap.get('CS'),
+      status: 'active',
+      must_change_password: false,
+      mfa_enabled: false,
+    },
+  })
 
   // 6. Enrollments — 5 courses each, biased toward own department → overlaps
   const enrollmentRows: Array<{ student_id: string; section_id: string }> = []
@@ -553,6 +592,9 @@ async function main() {
   console.log(`   Invigilators: ${invigilators.length}`)
   console.log(`   Invigilator assignments: ${assignmentRows.length}`)
   console.log('   Admin login: admin@airuni.edu.pk / Password@123')
+  console.log('   Coordinator login: coordinator@airuni.edu.pk / Password@123')
+  console.log('   Invigilator (forced password change): usman.tariq@airuni.edu.pk / Password@123')
+  console.log('   Student (no MFA): au2024cs042@airuni.edu.pk / Password@123')
 }
 
 main()

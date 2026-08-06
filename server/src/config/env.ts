@@ -8,12 +8,35 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
-  JWT_SECRET: z.string().min(1).default('change-me-in-production'),
-  JWT_EXPIRES_IN: z.string().min(1).default('8h'),
-  OTP_PROVIDER: z.enum(['redis', 'memory']).default('redis'),
-  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
-  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:5173'),
+
+  // ── Auth / JWT ──────────────────────────────────────────────────────────
+  JWT_SECRET: z.string().min(16).default('change-me-in-production'),
+  // Access token lifetime (jose ms StringValue, e.g. '15m' | '30m' | '1h' | '8h').
+  JWT_ACCESS_TTL: z.string().min(1).default('30m'),
+  // How long an MFA-pending token (granted at login) stays valid.
+  JWT_MFA_TTL: z.string().min(1).default('10m'),
+  // Refresh token lifetime in days.
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(14),
+
+  // ── Password policy & lockout ────────────────────────────────────────────
+  PASSWORD_MIN_LENGTH: z.coerce.number().int().positive().default(8),
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // ── OTP ──────────────────────────────────────────────────────────────────
+  // Storage backend. 'memory' is for development; 'redis' can be added later
+  // behind the same OtpStore interface.
+  OTP_PROVIDER: z.enum(['memory', 'redis']).default('memory'),
+  OTP_SENDER: z.enum(['console']).default('console'),
+  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
+  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+
+  // ── Rate limiting (per IP, sliding window) ───────────────────────────────
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
 })
 
 const parsed = envSchema.safeParse(process.env)

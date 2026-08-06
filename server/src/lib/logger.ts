@@ -6,7 +6,14 @@ export const logger = pino({
   base: { service: 'smart-exam-server' },
   timestamp: pino.stdTimeFunctions.isoTime,
   redact: {
-    paths: ['req.headers.authorization', 'password', 'password_hash'],
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'res.headers["set-cookie"]',
+      'password',
+      'password_hash',
+      'code',
+    ],
     censor: '[REDACTED]',
   },
 })
