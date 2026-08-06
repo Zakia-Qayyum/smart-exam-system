@@ -11,7 +11,7 @@ import type { Role } from '@/lib/types'
 
 export function ProfileMenu() {
   const user = useAuthStore((s) => s.user)
-  const login = useAuthStore((s) => s.login)
+  const impersonate = useAuthStore((s) => s.impersonate)
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -22,7 +22,7 @@ export function ProfileMenu() {
   if (!user) return null
 
   const switchRole = (role: Role) => {
-    login(role)
+    impersonate(role)
     setOpen(false)
     navigate(homeByRole[role])
   }

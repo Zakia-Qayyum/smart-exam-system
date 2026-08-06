@@ -1,5 +1,25 @@
 import type { DashboardStat, MockNotification, MockUser, Role, TickerItem } from '@/lib/types'
 
+export interface DemoAccount {
+  email: string
+  password: string
+  role: Role
+  requiresMfa: boolean
+  mustChangePassword: boolean
+  isLocked: boolean
+  label: string
+}
+
+export const demoAccounts: DemoAccount[] = [
+  { email: 'admin@airuni.edu.pk', password: 'Admin@123', role: 'admin', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Admin' },
+  { email: 'exam.coordinator@airuni.edu.pk', password: 'Coord@123', role: 'exam-coordinator', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Exam Coordinator' },
+  { email: 'dc.cs@airuni.edu.pk', password: 'Coord@123', role: 'dept-coordinator', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Department Coordinator' },
+  { email: 'hod.cs@airuni.edu.pk', password: 'Coord@123', role: 'hod', requiresMfa: false, mustChangePassword: false, isLocked: false, label: 'HOD (no MFA)' },
+  { email: 'usman.tariq@airuni.edu.pk', password: 'Invig@123', role: 'invigilator', requiresMfa: true, mustChangePassword: true, isLocked: false, label: 'Invigilator (force password change)' },
+  { email: 'au2024cs042@airuni.edu.pk', password: 'Student@123', role: 'student', requiresMfa: true, mustChangePassword: true, isLocked: false, label: 'Student (force password change)' },
+  { email: 'locked@airuni.edu.pk', password: 'Locked@123', role: 'admin', requiresMfa: true, mustChangePassword: false, isLocked: true, label: 'Locked account demo' },
+]
+
 export const mockUsers: Record<Role, MockUser> = {
   admin: {
     id: 'u-admin',

@@ -7,6 +7,10 @@ import { ModulePlaceholder } from '@/components/layout/module-placeholder'
 import { homeByRole, PROTECTED_PATHS, routeAccess } from '@/config/roles'
 import { useAuthStore } from '@/stores/auth-store'
 import { LoginPage } from '@/pages/login'
+import { MfaPage } from '@/pages/mfa'
+import { ForcedPasswordChangePage } from '@/pages/force-password-change'
+import { ForgotPasswordPage } from '@/pages/forgot-password'
+import { LockedPage } from '@/pages/locked'
 import { DashboardPage } from '@/pages/dashboard'
 import { NotificationsPage } from '@/pages/notifications'
 import { ComponentsShowcase } from '@/pages/components-showcase'
@@ -26,6 +30,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/mfa" element={<MfaPage />} />
+        <Route path="/force-password-change" element={<ForcedPasswordChangePage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/locked" element={<LockedPage />} />
         <Route path="/components" element={<ComponentsShowcase />} />
 
         <Route element={<AppLayout />}>
