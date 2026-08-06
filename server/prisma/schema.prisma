@@ -1,0 +1,297 @@
+// Smart Exam Scheduling & Invigilation Management System — Prisma schema
+// Field names/casing are documented in server/prisma/SCHEMA.md — mirror them in the frontend.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Identity ──────────────────────────────────────────────────────────────
+
+model User {
+  id                  String   @id @default(cuid())
+  name                String
+  email               String   @unique
+  password_hash       String
+  role                String // admin | coordinator | faculty | invigilator | student
+  department_id       String?
+  status              String   @default("active") // active | disabled
+  must_change_password Boolean @default(false)
+  created_at          DateTime @default(now())
+
+  department         Department?           @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  invigilator        Invigilator?
+  created_entries    ScheduleEntry[]       @relation("EntryCreator")
+  raised_requests    OverrideRequest[]     @relation("OverrideRaisedBy")
+  approved_requests  OverrideRequest[]     @relation("OverrideApprovedBy")
+  audit_logs         AuditLog[]            @relation("AuditPerformer")
+  notifications      Notification[]
+
+  @@map("users")
+}
+
+model Department {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  code       String   @unique
+  created_at DateTime @default(now())
+
+  users        User[]
+  programs     Program[]
+  courses      Course[]
+  students     Student[]
+  rooms        Room[]
+  invigilators Invigilator[]
+
+  @@map("departments")
+}
+
+model Program {
+  id            String @id @default(cuid())
+  department_id String
+  name          String
+  code          String
+  duration_years Int    @default(4)
+
+  department Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
+
+  @@unique([department_id, code])
+  @@map("programs")
+}
+
+// ── Academics ─────────────────────────────────────────────────────────────
+
+model Course {
+  id            String @id @default(cuid())
+  course_code   String @unique
+  title         String
+  department_id String
+  credit_hours  Int    @default(3)
+
+  department Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
+  sections   Section[]
+
+  @@map("courses")
+}
+
+model Section {
+  id        String @id @default(cuid())
+  course_id String
+  batch     String
+  semester  String
+
+  course           Course             @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  enrollments      Enrollment[]
+  schedule_entries ScheduleEntry[]
+
+  @@unique([course_id, batch, semester])
+  @@map("sections")
+}
+
+model Student {
+  id            String @id @default(cuid())
+  reg_id        String @unique
+  name          String
+  program       String
+  batch         String
+  department_id String
+
+  department Department    @relation(fields: [department_id], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  clashes    ClashRecord[]
+
+  @@index([department_id])
+  @@map("students")
+}
+
+model Enrollment {
+  id         String @id @default(cuid())
+  student_id String
+  section_id String
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  section Section @relation(fields: [section_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, section_id])
+  @@index([student_id])
+  @@index([section_id])
+  @@map("enrollments")
+}
+
+// ── Exam scheduling ───────────────────────────────────────────────────────
+
+model Room {
+  id            String  @id @default(cuid())
+  name          String  @unique
+  department_id String?
+  capacity      Int
+
+  department       Department?      @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  schedule_entries ScheduleEntry[]
+
+  @@map("rooms")
+}
+
+model ExamCycle {
+  id         String   @id @default(cuid())
+  name       String
+  term       String
+  start_date DateTime
+  end_date   DateTime
+  status     String   @default("draft") // draft | published | archived
+  created_at DateTime @default(now())
+
+  time_slots      TimeSlot[]
+  schedule_entries ScheduleEntry[]
+  clash_records   ClashRecord[]
+
+  @@map("exam_cycles")
+}
+
+model TimeSlot {
+  id            String   @id @default(cuid())
+  label         String
+  start_time    DateTime
+  end_time      DateTime
+  exam_cycle_id String
+
+  exam_cycle       ExamCycle        @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  schedule_entries ScheduleEntry[]
+
+  @@unique([exam_cycle_id, label])
+  @@map("time_slots")
+}
+
+model ScheduleEntry {
+  id            String   @id @default(cuid())
+  exam_cycle_id String
+  section_id    String
+  date          DateTime
+  time_slot_id  String
+  room_id       String
+  status        String   @default("scheduled") // scheduled | needs_review
+  created_by    String
+  created_at    DateTime @default(now())
+
+  exam_cycle            ExamCycle                 @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  section               Section                   @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  time_slot             TimeSlot                  @relation(fields: [time_slot_id], references: [id], onDelete: Restrict)
+  room                  Room                      @relation(fields: [room_id], references: [id], onDelete: Restrict)
+  creator               User                      @relation("EntryCreator", fields: [created_by], references: [id])
+  invigilator_assignments InvigilatorAssignment[]
+
+  @@unique([exam_cycle_id, section_id])
+  @@index([exam_cycle_id, date, time_slot_id])
+  @@index([date, time_slot_id])
+  @@index([time_slot_id])
+  @@index([room_id])
+  @@map("schedule_entries")
+}
+
+// ── Invigilation ──────────────────────────────────────────────────────────
+
+model Invigilator {
+  id                        String   @id @default(cuid())
+  user_id                   String   @unique
+  department_id             String
+  max_assignments_per_cycle Int      @default(5)
+  specialization_tags       String[]
+
+  user       User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  department Department              @relation(fields: [department_id], references: [id], onDelete: Restrict)
+  assignments InvigilatorAssignment[]
+
+  @@map("invigilators")
+}
+
+model InvigilatorAssignment {
+  id               String @id @default(cuid())
+  schedule_entry_id String
+  invigilator_id    String
+  status           String @default("assigned") // assigned | confirmed | declined
+
+  schedule_entry ScheduleEntry @relation(fields: [schedule_entry_id], references: [id], onDelete: Cascade)
+  invigilator   Invigilator   @relation(fields: [invigilator_id], references: [id], onDelete: Cascade)
+
+  @@unique([schedule_entry_id, invigilator_id])
+  @@index([invigilator_id])
+  @@map("invigilator_assignments")
+}
+
+// ── Clash detection & overrides ───────────────────────────────────────────
+
+model ClashRecord {
+  id                 String   @id @default(cuid())
+  type               String // same_slot | same_day
+  exam_cycle_id      String
+  student_id         String
+  schedule_entry_ids String[]
+  severity           String // low | medium | high
+  status             String   @default("open") // open | overridden | resolved
+  override_reason    String?
+  created_at         DateTime @default(now())
+
+  exam_cycle ExamCycle @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  student    Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@index([exam_cycle_id, status])
+  @@index([student_id])
+  @@map("clash_records")
+}
+
+model OverrideRequest {
+  id          String    @id @default(cuid())
+  raised_by   String
+  approved_by String?
+  target_type String // schedule_entry | clash_record
+  target_id   String
+  reason      String
+  status      String    @default("pending") // pending | approved | rejected
+  remarks     String?
+  created_at  DateTime  @default(now())
+  decided_at  DateTime?
+
+  raiser  User   @relation("OverrideRaisedBy", fields: [raised_by], references: [id])
+  approver User? @relation("OverrideApprovedBy", fields: [approved_by], references: [id])
+
+  @@index([status])
+  @@map("override_requests")
+}
+
+// ── Notifications & audit ─────────────────────────────────────────────────
+
+model Notification {
+  id         String    @id @default(cuid())
+  user_id    String
+  type       String
+  title      String
+  body       String?
+  read_at    DateTime?
+  link       String?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, read_at])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  action_type  String
+  target_type  String
+  target_id    String
+  performed_by String?
+  timestamp    DateTime @default(now())
+  meta         Json?
+
+  performer User? @relation("AuditPerformer", fields: [performed_by], references: [id], onDelete: SetNull)
+
+  @@index([target_type, target_id])
+  @@index([performed_by])
+  @@map("audit_log")
+}
