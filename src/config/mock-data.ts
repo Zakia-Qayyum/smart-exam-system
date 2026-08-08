@@ -1,4 +1,4 @@
-import type { DashboardStat, MockNotification, MockUser, Role, TickerItem } from '@/lib/types'
+import type { DashboardStat, MockNotification, Role, TickerItem } from '@/lib/types'
 
 export interface DemoAccount {
   email: string
@@ -11,59 +11,11 @@ export interface DemoAccount {
 }
 
 export const demoAccounts: DemoAccount[] = [
-  { email: 'admin@airuni.edu.pk', password: 'Admin@123', role: 'admin', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Admin' },
-  { email: 'exam.coordinator@airuni.edu.pk', password: 'Coord@123', role: 'exam-coordinator', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Exam Coordinator' },
-  { email: 'dc.cs@airuni.edu.pk', password: 'Coord@123', role: 'dept-coordinator', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Department Coordinator' },
-  { email: 'hod.cs@airuni.edu.pk', password: 'Coord@123', role: 'hod', requiresMfa: false, mustChangePassword: false, isLocked: false, label: 'HOD (no MFA)' },
-  { email: 'usman.tariq@airuni.edu.pk', password: 'Invig@123', role: 'invigilator', requiresMfa: true, mustChangePassword: true, isLocked: false, label: 'Invigilator (force password change)' },
-  { email: 'au2024cs042@airuni.edu.pk', password: 'Student@123', role: 'student', requiresMfa: true, mustChangePassword: true, isLocked: false, label: 'Student (force password change)' },
-  { email: 'locked@airuni.edu.pk', password: 'Locked@123', role: 'admin', requiresMfa: true, mustChangePassword: false, isLocked: true, label: 'Locked account demo' },
+  { email: 'admin@airuni.edu.pk', password: 'Password@123', role: 'admin', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Admin' },
+  { email: 'coordinator@airuni.edu.pk', password: 'Password@123', role: 'exam-coordinator', requiresMfa: true, mustChangePassword: false, isLocked: false, label: 'Exam Coordinator' },
+  { email: 'usman.tariq@airuni.edu.pk', password: 'Password@123', role: 'invigilator', requiresMfa: true, mustChangePassword: true, isLocked: false, label: 'Invigilator (force password change)' },
+  { email: 'au2024cs042@airuni.edu.pk', password: 'Password@123', role: 'student', requiresMfa: false, mustChangePassword: false, isLocked: false, label: 'Student (no MFA)' },
 ]
-
-export const mockUsers: Record<Role, MockUser> = {
-  admin: {
-    id: 'u-admin',
-    name: 'Zakia Qayyum',
-    email: 'admin@airuni.edu.pk',
-    role: 'admin',
-    department: null,
-  },
-  'exam-coordinator': {
-    id: 'u-ec',
-    name: 'Bilal Ahmed',
-    email: 'exam.coordinator@airuni.edu.pk',
-    role: 'exam-coordinator',
-    department: 'Examination Cell',
-  },
-  'dept-coordinator': {
-    id: 'u-dc',
-    name: 'Hira Khan',
-    email: 'dc.cs@airuni.edu.pk',
-    role: 'dept-coordinator',
-    department: 'Computer Science',
-  },
-  hod: {
-    id: 'u-hod',
-    name: 'Dr. Sana Malik',
-    email: 'hod.cs@airuni.edu.pk',
-    role: 'hod',
-    department: 'Computer Science',
-  },
-  invigilator: {
-    id: 'u-inv',
-    name: 'Usman Tariq',
-    email: 'usman.tariq@airuni.edu.pk',
-    role: 'invigilator',
-    department: 'Software Engineering',
-  },
-  student: {
-    id: 'u-stu',
-    name: 'Fatima Noor',
-    email: 'au2024cs042@airuni.edu.pk',
-    role: 'student',
-    department: 'Computer Science',
-  },
-}
 
 const unread = (n: number): Pick<MockNotification, 'read' | 'minutesAgo'> => ({ read: false, minutesAgo: n })
 const read = (n: number): Pick<MockNotification, 'read' | 'minutesAgo'> => ({ read: true, minutesAgo: n })

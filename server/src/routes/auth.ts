@@ -470,7 +470,8 @@ authRouter.post(
       departmentId: user.department_id,
       mustChangePassword: false,
     })
-    res.json({ status: 'ok', accessToken })
+    user.must_change_password = false
+    res.json({ status: 'ok', accessToken, user: await publicUser(user) })
   },
 )
 

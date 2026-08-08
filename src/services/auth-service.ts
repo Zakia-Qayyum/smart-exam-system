@@ -1,5 +1,5 @@
-import { demoAccounts } from '@/config/mock-data'
-import type { Role } from '@/lib/types'
+import { ApiError, apiFetch, refreshSession, setAccessToken } from '@/services/api-client'
+import type { AuthUser, Role } from '@/lib/types'
 
 export type LoginResult =
   | {
@@ -9,135 +9,128 @@ export type LoginResult =
       requiresMfa: boolean
       mustChangePassword: boolean
       otpExpiresAt: number
+      mfaPendingToken: string | null
+      accessToken: string | null
+      user: AuthUser
     }
   | { status: 'invalid_credentials' }
   | { status: 'locked'; email: string; until: number }
 
 export type VerifyOtpResult =
-  | { status: 'ok'; role: Role }
+  | { status: 'ok'; role: Role; accessToken: string; user: AuthUser }
   | { status: 'invalid_otp'; attemptsRemaining: number }
   | { status: 'locked'; until: number }
   | { status: 'expired' }
 
 /**
- * Contract the auth screens depend on. Step 6 will swap `authService` for an
- * implementation backed by the real API — no screen code needs to change.
+ * Real API-backed auth service (Step 6). The auth screens depend only on the
+ * store, which maps these results onto the exact shapes the screens render.
  */
 export interface AuthService {
   login(email: string, password: string): Promise<LoginResult>
-  verifyOtp(email: string, code: string): Promise<VerifyOtpResult>
-  resendOtp(email: string): Promise<{ expiresAt: number }>
-  changePassword(email: string, newPassword: string): Promise<void>
+  verifyOtp(mfaToken: string, code: string): Promise<VerifyOtpResult>
+  resendOtp(mfaToken: string): Promise<{ expiresAt: number }>
+  changePassword(newPassword: string): Promise<{ accessToken: string; user: AuthUser }>
   requestPasswordReset(email: string): Promise<void>
   logout(): Promise<void>
+  restoreSession(): Promise<AuthUser | null>
 }
 
-const LOCK_THRESHOLD = 5
-const LOCK_DURATION_MS = 15 * 60 * 1000
-const OTP_TTL_MS = 10 * 60 * 1000
-const OTP_MAX_ATTEMPTS = 3
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-const accountByEmail = new Map(demoAccounts.map((a) => [a.email.toLowerCase(), a]))
-
-const failedLogins: Record<string, number> = {}
-const otpFailures: Record<string, number> = {}
-const lockedUntil: Record<string, number> = {}
-let otp: { email: string; code: string; expiresAt: number } | null = null
-
-function randomCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString()
+interface AuthBody {
+  status?: string
+  email?: string
+  role?: Role
+  requiresMfa?: boolean
+  mustChangePassword?: boolean
+  otpExpiresAt?: number
+  mfaPendingToken?: string
+  accessToken?: string
+  user?: AuthUser
+  until?: number
+  attemptsRemaining?: number
 }
 
-function lockAccount(email: string) {
-  lockedUntil[email] = Date.now() + LOCK_DURATION_MS
-  failedLogins[email] = 0
-  otpFailures[email] = 0
-}
-
-export const mockAuthService: AuthService = {
+export const authService: AuthService = {
   async login(email, password) {
-    await delay(700)
-    const key = email.trim().toLowerCase()
-    const account = accountByEmail.get(key)
-
-    const locked = lockedUntil[key] && lockedUntil[key] > Date.now()
-    if (locked || account?.isLocked) {
+    const { status, body } = await apiFetch<AuthBody>('/api/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    })
+    if (status === 200 && body.status === 'ok' && body.user) {
+      if (!body.requiresMfa && body.accessToken) setAccessToken(body.accessToken)
       return {
-        status: 'locked',
-        email: key,
-        until: lockedUntil[key] ?? Date.now() + LOCK_DURATION_MS,
+        status: 'ok',
+        email: body.email ?? email,
+        role: body.role ?? 'admin',
+        requiresMfa: body.requiresMfa ?? false,
+        mustChangePassword: body.mustChangePassword ?? false,
+        otpExpiresAt: body.otpExpiresAt ?? 0,
+        mfaPendingToken: body.mfaPendingToken ?? null,
+        accessToken: body.accessToken ?? null,
+        user: body.user,
       }
     }
-
-    if (!account || account.password !== password) {
-      failedLogins[key] = (failedLogins[key] ?? 0) + 1
-      if (failedLogins[key] >= LOCK_THRESHOLD) {
-        lockAccount(key)
-        return { status: 'locked', email: key, until: lockedUntil[key] }
-      }
-      return { status: 'invalid_credentials' }
+    if (status === 423 && body.status === 'locked') {
+      return { status: 'locked', email: body.email ?? email, until: body.until ?? Date.now() }
     }
+    return { status: 'invalid_credentials' }
+  },
 
-    failedLogins[key] = 0
-    otpFailures[key] = 0
-    otp = { email: key, code: randomCode(), expiresAt: Date.now() + OTP_TTL_MS }
-    // Demo aid: surface the code the real system would send by email.
-    // eslint-disable-next-line no-console
-    console.info(`[mock-auth] OTP for ${key}: ${otp.code} (expires ${new Date(otp.expiresAt).toLocaleTimeString()})`)
-
-    return {
-      status: 'ok',
-      email: key,
-      role: account.role,
-      requiresMfa: account.requiresMfa,
-      mustChangePassword: account.mustChangePassword,
-      otpExpiresAt: otp.expiresAt,
+  async verifyOtp(mfaToken, code) {
+    const { status, body } = await apiFetch<AuthBody>('/api/auth/verify-otp', {
+      method: 'POST',
+      body: { token: mfaToken, code },
+    })
+    if (status === 200 && body.status === 'ok' && body.accessToken && body.user) {
+      setAccessToken(body.accessToken)
+      return { status: 'ok', role: body.role ?? 'admin', accessToken: body.accessToken, user: body.user }
     }
-  },
-
-  async verifyOtp(email, code) {
-    await delay(500)
-    if (!otp || otp.email !== email) return { status: 'expired' }
-    if (Date.now() > otp.expiresAt) return { status: 'expired' }
-
-    if (otp.code !== code) {
-      otpFailures[email] = (otpFailures[email] ?? 0) + 1
-      if (otpFailures[email] >= OTP_MAX_ATTEMPTS) {
-        lockAccount(email)
-        otp = null
-        return { status: 'locked', until: lockedUntil[email] }
-      }
-      return { status: 'invalid_otp', attemptsRemaining: OTP_MAX_ATTEMPTS - otpFailures[email] }
+    if (status === 401 && body.status === 'invalid_otp') {
+      return { status: 'invalid_otp', attemptsRemaining: body.attemptsRemaining ?? 0 }
     }
-
-    otpFailures[email] = 0
-    otp = null
-    return { status: 'ok', role: accountByEmail.get(email)!.role }
+    if (status === 403 && body.status === 'locked') {
+      return { status: 'locked', until: body.until ?? Date.now() }
+    }
+    return { status: 'expired' }
   },
 
-  async resendOtp(email) {
-    await delay(600)
-    otp = { email, code: randomCode(), expiresAt: Date.now() + OTP_TTL_MS }
-    otpFailures[email] = 0
-    // eslint-disable-next-line no-console
-    console.info(`[mock-auth] OTP for ${email}: ${otp.code}`)
-    return { expiresAt: otp.expiresAt }
+  async resendOtp(mfaToken) {
+    const { status, body } = await apiFetch<AuthBody>('/api/auth/resend-otp', {
+      method: 'POST',
+      body: { token: mfaToken },
+    })
+    if (status === 200 && body.status === 'ok' && body.otpExpiresAt) {
+      return { expiresAt: body.otpExpiresAt }
+    }
+    throw new ApiError(status, body, 'Unable to resend verification code')
   },
 
-  async changePassword(email, newPassword) {
-    await delay(700)
-    const account = accountByEmail.get(email)
-    if (account) account.password = newPassword
+  async changePassword(newPassword) {
+    const { status, body } = await apiFetch<AuthBody>('/api/auth/change-password', {
+      method: 'POST',
+      body: { newPassword },
+      auth: true,
+    })
+    if (status === 200 && body.status === 'ok' && body.accessToken && body.user) {
+      setAccessToken(body.accessToken)
+      return { accessToken: body.accessToken, user: body.user }
+    }
+    throw new ApiError(status, body, 'Unable to change password')
   },
 
-  async requestPasswordReset(_email) {
-    await delay(900)
-    // Deliberately a no-op: the UI always shows a generic "check your email".
+  async requestPasswordReset(email) {
+    await apiFetch('/api/auth/forgot-password', { method: 'POST', body: { email } })
   },
 
   async logout() {
-    otp = null
+    await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {
+      /* best-effort server-side revocation */
+    })
+    setAccessToken(null)
+  },
+
+  async restoreSession() {
+    const result = await refreshSession()
+    return result?.user ?? null
   },
 }

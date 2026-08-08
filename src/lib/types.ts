@@ -8,12 +8,14 @@ export type Role =
   | 'invigilator'
   | 'student'
 
-export interface MockUser {
+export interface AuthUser {
   id: string
   name: string
   email: string
   role: Role
   department: string | null
+  mustChangePassword: boolean
+  mfaEnabled: boolean
 }
 
 export type NotificationKind = 'clash' | 'published' | 'assignment' | 'approval' | 'info'
