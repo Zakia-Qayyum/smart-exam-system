@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ExamCoordinatorDashboard } from '@/components/dashboard/coordinator-dashboard'
 import { navByRole, roleLabels } from '@/config/roles'
 import { mockStats } from '@/config/mock-data'
 import { useAuthStore } from '@/stores/auth-store'
@@ -23,6 +24,8 @@ export function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const byRole = useNotificationsStore((s) => s.byRole)
   if (!user) return null
+
+  if (user.role === 'exam-coordinator') return <ExamCoordinatorDashboard user={user} />
 
   const stats = mockStats(user.role)
   const quickActions = navByRole[user.role].slice(0, 4)

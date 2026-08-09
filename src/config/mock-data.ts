@@ -1,4 +1,24 @@
-import type { DashboardStat, MockNotification, Role, TickerItem } from '@/lib/types'
+import {
+  CalendarClock,
+  CalendarPlus,
+  FileDown,
+  FileText,
+  Send,
+  Siren,
+  Upload,
+  Users,
+} from 'lucide-react'
+import type {
+  ClashListItem,
+  CoordinatorKpi,
+  CoordinatorQuickAction,
+  DashboardActivity,
+  DashboardStat,
+  ExamDayBrief,
+  MockNotification,
+  Role,
+  TickerItem,
+} from '@/lib/types'
 
 export interface DemoAccount {
   email: string
@@ -154,5 +174,161 @@ export function mockStats(role: Role): DashboardStat[] {
         { label: 'Audit events', value: '1.2k', hint: 'this cycle', tone: 'info' },
         { label: 'Services', value: 'All up', hint: 'API + database', tone: 'success' },
       ]
+  }
+}
+
+const CYCLE_LABEL = 'Fall-2026'
+const FIRST_EXAM_ISO = '2026-08-10'
+
+const CYCLE_EXAM_DAYS: Record<string, { sessionCount: number; hasClash: boolean }> = {
+  '2026-08-10': { sessionCount: 6, hasClash: true },
+  '2026-08-11': { sessionCount: 7, hasClash: true },
+  '2026-08-12': { sessionCount: 6, hasClash: true },
+  '2026-08-13': { sessionCount: 7, hasClash: false },
+  '2026-08-14': { sessionCount: 6, hasClash: false },
+}
+
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`
+}
+
+export function mockExamDays(): ExamDayBrief[] {
+  const days: ExamDayBrief[] = []
+  const now = new Date()
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now)
+    d.setDate(now.getDate() + i)
+    const iso = localIso(d)
+    const exam = CYCLE_EXAM_DAYS[iso]
+    days.push({
+      id: `day-${i}`,
+      iso,
+      dayLabel: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      dateLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      isExamDay: Boolean(exam),
+      sessionCount: exam?.sessionCount ?? 0,
+      hasClash: exam?.hasClash ?? false,
+    })
+  }
+  return days
+}
+
+export function mockCoordinatorDashboard(): {
+  hasActiveCycle: boolean
+  cycleLabel: string
+  kpis: CoordinatorKpi[]
+  examDays: ExamDayBrief[]
+  activity: DashboardActivity[]
+  clashes: ClashListItem[]
+  quickActions: CoordinatorQuickAction[]
+} {
+  const firstExam = new Date(`${FIRST_EXAM_ISO}T00:00:00`)
+  const now = new Date()
+  const daysToFirst = Math.max(0, Math.ceil((firstExam.getTime() - now.getTime()) / 86_400_000))
+  const firstExamLabel = new Date(FIRST_EXAM_ISO).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+
+  const kpis: CoordinatorKpi[] = [
+    {
+      id: 'kpi-papers',
+      label: 'Papers Scheduled',
+      value: '142/160',
+      hint: 'of 160 papers in cycle',
+      icon: FileText,
+      tone: 'navy',
+      fraction: { current: 142, total: 160 },
+    },
+    {
+      id: 'kpi-clashes',
+      label: 'Pending Clashes',
+      value: '12',
+      hint: 'need review before publish',
+      icon: Siren,
+      tone: 'danger',
+    },
+    {
+      id: 'kpi-invigilators',
+      label: 'Invigilators Assigned',
+      value: '38/45',
+      hint: 'duty slots filled',
+      icon: Users,
+      tone: 'info',
+      fraction: { current: 38, total: 45 },
+    },
+    {
+      id: 'kpi-countdown',
+      label: 'Days to First Exam',
+      value: daysToFirst === 0 ? 'Today' : String(daysToFirst),
+      hint: daysToFirst === 0 ? `${CYCLE_LABEL} exams start` : `until ${firstExamLabel}`,
+      icon: CalendarClock,
+      tone: 'gold',
+    },
+  ]
+
+  const activity: DashboardActivity[] = [
+    {
+      id: 'act-1',
+      kind: 'clash',
+      title: 'Clash spike in draft timetable',
+      detail: '241 same-day conflicts flagged across 32 sessions.',
+      minutesAgo: 8,
+    },
+    {
+      id: 'act-2',
+      kind: 'published',
+      title: 'Timetable draft ready',
+      detail: `${CYCLE_LABEL} timetable generated with 32 sessions across 5 days.`,
+      minutesAgo: 26,
+    },
+    {
+      id: 'act-3',
+      kind: 'assignment',
+      title: 'Invigilator assignments drafted',
+      detail: '8 of 45 duty slots still awaiting confirmation.',
+      minutesAgo: 40,
+    },
+    {
+      id: 'act-4',
+      kind: 'approval',
+      title: 'Room change approved',
+      detail: 'CS-202 moved from Hall A to Hall B for the 11 Aug session.',
+      minutesAgo: 75,
+    },
+    {
+      id: 'act-5',
+      kind: 'info',
+      title: 'Backup pool configured',
+      detail: 'Backup invigilators added to the cycle roster.',
+      minutesAgo: 150,
+    },
+  ]
+
+  const clashes: ClashListItem[] = [
+    { id: 'cl-1', code: 'CS-202', title: 'Data Structures', affected: 3, dateLabel: '11 Aug', slot: 'Morning', kind: 'same-slot' },
+    { id: 'cl-2', code: 'SE-101', title: 'Software Engineering I', affected: 1, dateLabel: '11 Aug', slot: 'Morning', kind: 'same-day' },
+    { id: 'cl-3', code: 'MA-201', title: 'Linear Algebra', affected: 4, dateLabel: '12 Aug', slot: 'Afternoon', kind: 'same-slot' },
+    { id: 'cl-4', code: 'CS-305', title: 'Database Systems', affected: 2, dateLabel: '13 Aug', slot: 'Morning', kind: 'same-day' },
+    { id: 'cl-5', code: 'PH-102', title: 'Applied Physics', affected: 5, dateLabel: '14 Aug', slot: 'Afternoon', kind: 'same-slot' },
+  ]
+
+  const quickActions: CoordinatorQuickAction[] = [
+    { id: 'qa-1', label: 'New Schedule Entry', description: 'Add a session to the timetable', icon: CalendarPlus, path: '/scheduling' },
+    { id: 'qa-2', label: 'Import Invigilators', description: 'Bulk-upload duty availability', icon: Upload, path: '/invigilators' },
+    { id: 'qa-3', label: 'Generate Datesheet PDF', description: 'Export the full datesheet', icon: FileDown, path: '/reports' },
+    { id: 'qa-4', label: 'Publish Datesheet', description: 'Push the datesheet live to students', icon: Send },
+  ]
+
+  return {
+    hasActiveCycle: true,
+    cycleLabel: CYCLE_LABEL,
+    kpis,
+    examDays: mockExamDays(),
+    activity,
+    clashes,
+    quickActions,
   }
 }
