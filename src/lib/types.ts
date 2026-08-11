@@ -97,3 +97,101 @@ export interface CoordinatorQuickAction {
   icon: LucideIcon
   path?: string
 }
+
+export type ScheduleStatus = 'scheduled' | 'needs_review'
+
+export interface MockDepartment {
+  id: string
+  name: string
+  code: string
+}
+
+export interface MockProgram {
+  id: string
+  department_id: string
+  name: string
+  code: string
+  duration_years: number
+}
+
+export interface MockCourse {
+  course_code: string
+  title: string
+  department_id: string
+  credit_hours: number
+  program_code: string
+}
+
+export interface MockTimeSlot {
+  id: string
+  label: string
+  start_time: string
+  end_time: string
+}
+
+export interface MockRoom {
+  id: string
+  name: string
+  department_id: string | null
+  capacity: number
+}
+
+export interface MockInvigilator {
+  id: string
+  name: string
+  department_id: string
+  department_name: string
+  availability: 'Available' | 'Busy' | 'On leave'
+  assigned_count: number
+  max_assignments_per_cycle: number
+}
+
+export interface MockSection {
+  id: string
+  course_code: string
+  course_title: string
+  department_id: string
+  program: string
+  batch: string
+  enrolled_count: number
+}
+
+export interface MockScheduleEntry {
+  id: string
+  exam_cycle_id: string
+  section_id: string
+  course_code: string
+  course_title: string
+  department_id: string
+  program: string
+  batch: string
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  room_id: string
+  room_name: string
+  room_capacity: number
+  enrolled_count: number
+  status: ScheduleStatus
+  clash_detail?: string
+}
+
+export interface ScheduleSummary {
+  total: number
+  scheduled: number
+  needs_review: number
+  same_slot: number
+  same_day: number
+}
+
+export interface ClashHit {
+  entry: MockScheduleEntry
+  type: 'same_slot' | 'same_day'
+  severity: 'high' | 'medium'
+}
+
+export interface ClashCandidate {
+  program: string
+  date: string
+  time_slot_id: string
+}

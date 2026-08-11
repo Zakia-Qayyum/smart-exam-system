@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, CalendarCheck, CheckCircle2 } from 'lucide-react'
 import { Modal } from './modal'
 import { Button } from './button'
 
@@ -11,6 +11,13 @@ export interface ConfirmDialogProps {
   confirmLabel?: string
   cancelLabel?: string
   loading?: boolean
+  variant?: 'danger' | 'primary' | 'success'
+}
+
+const iconByVariant = {
+  danger: { icon: AlertTriangle, wrap: 'bg-danger-light', tone: 'text-danger' },
+  primary: { icon: CalendarCheck, wrap: 'bg-navy/10', tone: 'text-navy' },
+  success: { icon: CheckCircle2, wrap: 'bg-success-light', tone: 'text-success' },
 }
 
 export function ConfirmDialog({
@@ -22,7 +29,9 @@ export function ConfirmDialog({
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
   loading = false,
+  variant = 'danger',
 }: ConfirmDialogProps) {
+  const { icon: Icon, wrap, tone } = iconByVariant[variant]
   return (
     <Modal
       open={open}
@@ -34,15 +43,15 @@ export function ConfirmDialog({
           <Button variant="secondary" onClick={onClose} disabled={loading}>
             {cancelLabel}
           </Button>
-          <Button variant="danger" onClick={onConfirm} loading={loading}>
+          <Button variant={variant === 'success' ? 'primary' : variant} onClick={onConfirm} loading={loading}>
             {confirmLabel}
           </Button>
         </>
       }
     >
       <div className="flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-danger-light">
-          <AlertTriangle className="h-5 w-5 text-danger" />
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${wrap}`}>
+          <Icon className={`h-5 w-5 ${tone}`} />
         </div>
         <div className="min-w-0">
           <h2 className="text-base font-bold text-ink">{title}</h2>

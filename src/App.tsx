@@ -13,11 +13,13 @@ import { ForgotPasswordPage } from '@/pages/forgot-password'
 import { LockedPage } from '@/pages/locked'
 import { DashboardPage } from '@/pages/dashboard'
 import { NotificationsPage } from '@/pages/notifications'
+import { SchedulingPage } from '@/pages/scheduling'
 import { ComponentsShowcase } from '@/pages/components-showcase'
 
 const dedicatedPages: Record<string, ComponentType> = {
   '/dashboard': DashboardPage,
   '/notifications': NotificationsPage,
+  '/scheduling': SchedulingPage,
 }
 
 function HomeRedirect() {

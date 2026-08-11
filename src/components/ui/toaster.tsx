@@ -33,6 +33,18 @@ function ToastCard({ toast }: { toast: ToastItem }) {
         {toast.description && (
           <p className="mt-0.5 text-sm text-ink-muted">{toast.description}</p>
         )}
+        {toast.action && (
+          <button
+            type="button"
+            onClick={() => {
+              remove(toast.id)
+              toast.action?.onClick()
+            }}
+            className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-navy/30 px-3 text-xs font-semibold text-navy transition-colors hover:bg-navy hover:text-white"
+          >
+            {toast.action.label}
+          </button>
+        )}
       </div>
       <button
         type="button"
