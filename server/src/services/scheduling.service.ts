@@ -1,13 +1,16 @@
 /**
  * Scheduling service — validation, clash-blocking save, listing, calendar
  * summary and the async draft generator. DB-backed; the pure algorithms live
- * in clash-detection.service.ts and schedule-engine.service.ts and are unit
- * tested in isolation.
+ * in lib/clash-detection.ts and schedule-engine.service.ts and are unit tested
+ * in isolation, while clash detection persistence is delegated to the
+ * DB-backed clash-detection.service.ts (see scanFullCycle).
  */
 import { prisma } from '../lib/prisma.js'
 import { logger } from '../lib/logger.js'
 import { HttpError } from '../lib/http-error.js'
-import { findClashesForCandidate, type ClashHit, type EnrolledStudent, type StudentExam } from './clash-detection.service.js'
+import { dateFromKey, dateKey, enumerateDays, resolveExamCycle } from '../lib/schedule-utils.js'
+import type { ClashHit } from '../lib/clash-detection.js'
+import { clashService } from './clash-detection.service.js'
 import { buildDraftSchedule, type DraftAssignment, type DraftRoom, type DraftSectionInput, type DraftTimeSlot } from './schedule-engine.service.js'
 
 export interface EntryInput {
@@ -114,29 +117,7 @@ export interface GenerateResult {
   entries: ApiScheduleEntry[]
 }
 
-const dateKey = (d: Date) => d.toISOString().slice(0, 10)
-const dateFromKey = (key: string) => new Date(`${key}T00:00:00.000Z`)
-
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-async function resolveExamCycle(examCycleId?: string) {
-  const cycle = examCycleId
-    ? await prisma.examCycle.findUnique({ where: { id: examCycleId } })
-    : await prisma.examCycle.findFirst({ where: { status: 'draft' }, orderBy: { created_at: 'desc' } })
-  if (!cycle) throw new HttpError(404, 'cycle_not_found', 'No active exam cycle found')
-  return cycle
-}
-
-function enumerateDays(start: Date, end: Date): string[] {
-  const days: string[] = []
-  const endKey = dateKey(end)
-  const current = new Date(`${dateKey(start)}T00:00:00.000Z`)
-  while (dateKey(current) <= endKey) {
-    days.push(dateKey(current))
-    current.setUTCDate(current.getUTCDate() + 1)
-  }
-  return days
-}
 
 async function toApiEntry(row: {
   id: string
@@ -175,58 +156,6 @@ async function toApiEntry(row: {
     created_by: row.created_by,
     created_at: row.created_at.toISOString(),
   }
-}
-
-async function detectForEntry(input: EntryInput, cycleId: string, existingId?: string) {
-  const enrolledRows = await prisma.enrollment.findMany({
-    where: { section_id: input.section_id },
-    select: { student: { select: { id: true, reg_id: true, name: true } } },
-  })
-  const enrolled: EnrolledStudent[] = enrolledRows.map((r) => ({
-    studentId: r.student.id,
-    regId: r.student.reg_id,
-    name: r.student.name,
-  }))
-  const studentIds = enrolled.map((s) => s.studentId)
-
-  const otherEnrollments = studentIds.length
-    ? await prisma.enrollment.findMany({
-        where: { student_id: { in: studentIds } },
-        select: {
-          student_id: true,
-          section: {
-            select: {
-              id: true,
-              course: { select: { course_code: true } },
-              schedule_entries: {
-                where: { exam_cycle_id: cycleId, ...(existingId ? { id: { not: existingId } } : {}) },
-                select: { id: true, date: true, time_slot_id: true },
-              },
-            },
-          },
-        },
-      })
-    : []
-
-  const studentExams: StudentExam[] = []
-  for (const en of otherEnrollments) {
-    for (const se of en.section.schedule_entries) {
-      studentExams.push({
-        studentId: en.student_id,
-        entryId: se.id,
-        sectionId: en.section.id,
-        date: dateKey(se.date),
-        timeSlotId: se.time_slot_id,
-        courseCode: en.section.course.course_code,
-      })
-    }
-  }
-
-  return findClashesForCandidate(
-    { sectionId: input.section_id, date: input.date, timeSlotId: input.time_slot_id },
-    enrolled,
-    studentExams,
-  )
 }
 
 async function validateEntry(input: EntryInput, existingId?: string) {
@@ -278,7 +207,13 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
     if (!existing) throw new HttpError(404, 'entry_not_found', 'Schedule entry not found')
   }
 
-  const result = await detectForEntry(input, cycle.id, options.existingId)
+  const result = await clashService.detectCandidateClashes({
+    cycleId: cycle.id,
+    sectionId: input.section_id,
+    date: input.date,
+    timeSlotId: input.time_slot_id,
+    existingId: options.existingId,
+  })
   const force = options.force === true && result.clashes.length > 0
   if (force && !options.override_reason) {
     throw new HttpError(422, 'override_reason_required', 'override_reason is required to force-save a clashing entry')
@@ -562,89 +497,6 @@ async function calendarSummary(examCycleId?: string): Promise<CalendarSummary> {
 
 // ── Async draft generator ──────────────────────────────────────────────────
 
-async function recomputeClashes(cycleId: string): Promise<{ sameSlot: number; sameDay: number }> {
-  const [entries, enrollments] = await Promise.all([
-    prisma.scheduleEntry.findMany({
-      where: { exam_cycle_id: cycleId },
-      select: { id: true, section_id: true, date: true, time_slot_id: true },
-    }),
-    prisma.enrollment.findMany({ select: { student_id: true, section_id: true } }),
-  ])
-
-  const entryBySection = new Map(entries.map((e) => [e.section_id, e]))
-  const byStudent = new Map<string, Array<{ id: string; date: string; timeSlotId: string }>>()
-  for (const en of enrollments) {
-    const entry = entryBySection.get(en.section_id)
-    if (!entry) continue
-    const list = byStudent.get(en.student_id) ?? []
-    list.push({ id: entry.id, date: dateKey(entry.date), timeSlotId: entry.time_slot_id })
-    byStudent.set(en.student_id, list)
-  }
-
-  const clashRows: Array<{
-    type: 'same_slot' | 'same_day'
-    exam_cycle_id: string
-    student_id: string
-    schedule_entry_ids: string[]
-    severity: 'high' | 'medium'
-    status: 'open'
-  }> = []
-  const needsReview = new Set<string>()
-
-  for (const [studentId, exams] of byStudent) {
-    const bySlot = new Map<string, Array<{ id: string; date: string }>>()
-    const byDay = new Map<string, Array<{ id: string; timeSlotId: string }>>()
-    for (const e of exams) {
-      const slotKey = `${e.date}|${e.timeSlotId}`
-      bySlot.set(slotKey, [...(bySlot.get(slotKey) ?? []), { id: e.id, date: e.date }])
-      byDay.set(e.date, [...(byDay.get(e.date) ?? []), { id: e.id, timeSlotId: e.timeSlotId }])
-    }
-
-    for (const group of bySlot.values()) {
-      if (group.length < 2) continue
-      group.forEach((e) => needsReview.add(e.id))
-      clashRows.push({
-        type: 'same_slot',
-        exam_cycle_id: cycleId,
-        student_id: studentId,
-        schedule_entry_ids: group.map((e) => e.id),
-        severity: 'high',
-        status: 'open',
-      })
-    }
-
-    for (const [day, group] of byDay) {
-      if (group.length < 2) continue
-      const alreadySlotFlagged = group.some((e) => {
-        const slotGroup = bySlot.get(`${day}|${e.timeSlotId}`)
-        return !!slotGroup && slotGroup.length >= 2
-      })
-      if (alreadySlotFlagged) continue
-      clashRows.push({
-        type: 'same_day',
-        exam_cycle_id: cycleId,
-        student_id: studentId,
-        schedule_entry_ids: group.map((e) => e.id),
-        severity: 'medium',
-        status: 'open',
-      })
-    }
-  }
-
-  await prisma.$transaction([
-    prisma.clashRecord.createMany({ data: clashRows }),
-    prisma.scheduleEntry.updateMany({
-      where: { id: { in: [...needsReview] } },
-      data: { status: 'needs_review' },
-    }),
-  ])
-
-  return {
-    sameSlot: clashRows.filter((c) => c.type === 'same_slot').length,
-    sameDay: clashRows.filter((c) => c.type === 'same_day').length,
-  }
-}
-
 async function generateSchedule(options: { examCycleId?: string; createdBy: string }): Promise<GenerateResult> {
   const cycle = await resolveExamCycle(options.examCycleId)
   const days = enumerateDays(cycle.start_date, cycle.end_date)
@@ -690,15 +542,15 @@ async function generateSchedule(options: { examCycleId?: string; createdBy: stri
     })
   })
 
-  const clashCounts = await recomputeClashes(cycle.id)
+  const scan = await clashService.scanFullCycle(cycle.id)
 
   const list = await listEntries({ exam_cycle_id: cycle.id, page_size: 200 })
   return {
     cycle_id: cycle.id,
     scheduled: list.summary.scheduled,
     needs_review: list.summary.needs_review,
-    same_slot: clashCounts.sameSlot,
-    same_day: clashCounts.sameDay,
+    same_slot: scan.same_slot,
+    same_day: scan.same_day,
     entries: list.entries,
   }
 }

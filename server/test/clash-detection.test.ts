@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findClashesForCandidate, type EnrolledStudent, type StudentExam } from '../src/services/clash-detection.service.js'
+import { findClashesForCandidate, type EnrolledStudent, type StudentExam } from '../src/lib/clash-detection.js'
 
 const CANDIDATE = { sectionId: 'sec-candidate', date: '2026-08-10', timeSlotId: 'ts-morning' }
 

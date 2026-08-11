@@ -7,6 +7,7 @@ import { ipRateLimit } from './lib/rate-limit.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { schedulingRouter } from './routes/scheduling.js'
+import { clashesRouter } from './routes/clashes.js'
 import { HttpError } from './lib/http-error.js'
 
 export function createApp() {
@@ -34,6 +35,7 @@ export function createApp() {
   app.use('/api/health', healthRouter)
   app.use('/api/auth', ipRateLimit(), authRouter)
   app.use('/api/scheduling', schedulingRouter)
+  app.use('/api/clashes', clashesRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })
