@@ -6,6 +6,8 @@ import { logger } from './lib/logger.js'
 import { ipRateLimit } from './lib/rate-limit.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
+import { schedulingRouter } from './routes/scheduling.js'
+import { HttpError } from './lib/http-error.js'
 
 export function createApp() {
   const app = express()
@@ -31,12 +33,21 @@ export function createApp() {
 
   app.use('/api/health', healthRouter)
   app.use('/api/auth', ipRateLimit(), authRouter)
+  app.use('/api/scheduling', schedulingRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })
   })
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({
+        status: err.code,
+        error: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      })
+      return
+    }
     logger.error({ err }, 'unhandled error')
     const message = err instanceof Error ? err.message : 'Internal server error'
     res.status(500).json({ error: 'Internal server error', message })
