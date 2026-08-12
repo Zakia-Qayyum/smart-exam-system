@@ -246,6 +246,12 @@ export interface ApiTimeSlot {
   end_time: string
 }
 
+export interface ApiInvigilator {
+  id: string
+  name: string
+  department_id: string
+}
+
 export interface SchedulingCatalog {
   cycle: ApiCycle | null
   departments: ApiDepartment[]
@@ -254,6 +260,7 @@ export interface SchedulingCatalog {
   rooms: ApiRoom[]
   time_slots: ApiTimeSlot[]
   batches: string[]
+  invigilators: ApiInvigilator[]
 }
 
 export type ApiScheduleStatus = 'scheduled' | 'needs_review'
@@ -277,8 +284,36 @@ export interface ApiScheduleEntry {
   room_capacity: number
   enrolled_count: number
   status: ApiScheduleStatus
+  invigilators: Array<{ id: string; name: string }>
   created_by: string
   created_at: string
+}
+
+export interface ApiCalendarDay {
+  date: string
+  exams: number
+  rooms_used: number
+  needs_review: number
+  same_slot: number
+  same_day: number
+  has_clashes: boolean
+}
+
+export interface ApiCalendarSummary {
+  cycle: ApiCycle
+  days: ApiCalendarDay[]
+  summary: {
+    total_exams: number
+    scheduled: number
+    needs_review: number
+    same_slot: number
+    same_day: number
+    rooms_used: number
+  }
+}
+
+export interface ApiCyclePublish {
+  cycle: ApiCycle
 }
 
 export interface ApiScheduleList {

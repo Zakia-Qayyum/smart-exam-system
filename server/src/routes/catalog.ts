@@ -28,7 +28,7 @@ catalogRouter.get(
         orderBy: { created_at: 'desc' },
       })
 
-      const [departments, courses, sections, rooms, timeSlots] = await Promise.all([
+      const [departments, courses, sections, rooms, timeSlots, invigilators] = await Promise.all([
         prisma.department.findMany({
           orderBy: { code: 'asc' },
           select: { id: true, code: true, name: true },
@@ -56,6 +56,10 @@ catalogRouter.get(
           where: cycle ? { exam_cycle_id: cycle.id } : {},
           orderBy: { start_time: 'asc' },
           select: { id: true, label: true, start_time: true, end_time: true },
+        }),
+        prisma.invigilator.findMany({
+          orderBy: { user: { name: 'asc' } },
+          select: { id: true, department_id: true, user: { select: { name: true } } },
         }),
       ])
 
@@ -90,6 +94,11 @@ catalogRouter.get(
           end_time: time(t.end_time),
         })),
         batches: [...new Set(sections.map((s) => s.batch))].sort(),
+        invigilators: invigilators.map((inv) => ({
+          id: inv.id,
+          name: inv.user.name,
+          department_id: inv.department_id,
+        })),
       })
     } catch (err) {
       next(err)

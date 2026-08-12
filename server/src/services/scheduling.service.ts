@@ -48,6 +48,7 @@ export interface ApiScheduleEntry {
   room_capacity: number
   enrolled_count: number
   status: 'scheduled' | 'needs_review'
+  invigilators: Array<{ id: string; name: string }>
   created_by: string
   created_at: string
 }
@@ -132,6 +133,9 @@ async function toApiEntry(row: {
   section: { batch: string; semester: string; course: { course_code: string; title: string; department: { id: string; code: string; name: string } } }
   time_slot: { id: string; label: string }
   room: { id: string; name: string; capacity: number }
+  invigilator_assignments: Array<{
+    invigilator: { id: string; user: { name: string } }
+  }>
 }): Promise<ApiScheduleEntry> {
   const enrolled_count = await prisma.enrollment.count({ where: { section_id: row.section_id } })
   return {
@@ -153,8 +157,23 @@ async function toApiEntry(row: {
     room_capacity: row.room.capacity,
     enrolled_count,
     status: row.status === 'needs_review' ? 'needs_review' : 'scheduled',
+    invigilators: row.invigilator_assignments.map((a) => ({
+      id: a.invigilator.id,
+      name: a.invigilator.user.name,
+    })),
     created_by: row.created_by,
     created_at: row.created_at.toISOString(),
+  }
+}
+
+/** Publishing a cycle locks casual editing — all writes are refused on non-draft cycles. */
+function assertEditable(cycle: { status: string }) {
+  if (cycle.status !== 'draft') {
+    throw new HttpError(
+      409,
+      'cycle_not_editable',
+      'This cycle is already published — editing the timetable is locked',
+    )
   }
 }
 
@@ -201,6 +220,7 @@ async function validateEntry(input: EntryInput, existingId?: string) {
 
 async function saveEntry(input: EntryInput, options: SaveOptions): Promise<ScheduleSaveResult> {
   const { cycle, room } = await validateEntry(input, options.existingId)
+  assertEditable(cycle)
 
   if (options.existingId) {
     const existing = await prisma.scheduleEntry.findUnique({ where: { id: options.existingId } })
@@ -324,6 +344,7 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
       section: { include: { course: { include: { department: true } } } },
       time_slot: true,
       room: true,
+      invigilator_assignments: { include: { invigilator: { include: { user: { select: { name: true } } } } } },
     },
   })
   if (!row) throw new HttpError(500, 'entry_not_saved', 'Saved entry could not be loaded')
@@ -339,6 +360,8 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
 async function deleteEntry(id: string, createdBy: string): Promise<void> {
   const entry = await prisma.scheduleEntry.findUnique({ where: { id } })
   if (!entry) throw new HttpError(404, 'entry_not_found', 'Schedule entry not found')
+  const cycle = await prisma.examCycle.findUnique({ where: { id: entry.exam_cycle_id } })
+  if (cycle) assertEditable(cycle)
 
   await prisma.$transaction(async (tx) => {
     await tx.clashRecord.deleteMany({ where: { schedule_entry_ids: { has: id } } })
@@ -388,6 +411,7 @@ async function listEntries(query: ListQuery): Promise<ListResult> {
         section: { include: { course: { include: { department: true } } } },
         time_slot: true,
         room: true,
+        invigilator_assignments: { include: { invigilator: { include: { user: { select: { name: true } } } } } },
       },
       orderBy: [{ date: 'asc' }, { time_slot: { start_time: 'asc' } }],
       skip: (page - 1) * page_size,
@@ -499,6 +523,7 @@ async function calendarSummary(examCycleId?: string): Promise<CalendarSummary> {
 
 async function generateSchedule(options: { examCycleId?: string; createdBy: string }): Promise<GenerateResult> {
   const cycle = await resolveExamCycle(options.examCycleId)
+  assertEditable(cycle)
   const days = enumerateDays(cycle.start_date, cycle.end_date)
 
   const [timeSlots, rooms, sections, enrollments] = await Promise.all([

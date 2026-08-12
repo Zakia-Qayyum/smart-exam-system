@@ -104,3 +104,24 @@
     transform: translateY(0) scale(1);
   }
 }
+
+@keyframes clashPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(214, 69, 69, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(214, 69, 69, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(214, 69, 69, 0);
+  }
+}
+
+@keyframes drawerIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

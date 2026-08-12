@@ -1,8 +1,10 @@
 import { ApiError, apiFetch } from '@/services/api-client'
 import type {
+  ApiCalendarSummary,
   ApiClashCheckResult,
   ApiClashList,
   ApiClashRecord,
+  ApiCyclePublish,
   ApiGenerateJob,
   ApiSaveResult,
   ApiScheduleEntry,
@@ -41,6 +43,27 @@ export async function fetchScheduleEntries(params?: {
     { auth: true },
   )
   if (status !== 200) throwFor(status, body, 'Unable to load schedule entries')
+  return body
+}
+
+/** Per-day aggregates for the datesheet calendar (exams, rooms, clashes). */
+export async function fetchCalendarSummary(params?: { cycle?: string }): Promise<ApiCalendarSummary> {
+  const { status, body } = await apiFetch<ApiCalendarSummary>(
+    `/api/scheduling/schedule-entries/calendar-summary${toQuery(params ?? {})}`,
+    { auth: true },
+  )
+  if (status !== 200) throwFor(status, body, 'Unable to load the datesheet calendar')
+  return body
+}
+
+/** Publish the datesheet — notifies everyone and locks editing. */
+export async function publishCycle(cycleId: string): Promise<ApiCyclePublish> {
+  const { status, body } = await apiFetch<ApiCyclePublish>(`/api/cycles/${cycleId}/publish`, {
+    method: 'POST',
+    body: {},
+    auth: true,
+  })
+  if (status !== 200) throwFor(status, body, 'Unable to publish the datesheet')
   return body
 }
 

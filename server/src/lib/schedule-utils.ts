@@ -27,12 +27,17 @@ export function enumerateDays(start: Date, end: Date): string[] {
 /**
  * Resolve the exam cycle a request refers to. When no id is given the most
  * recently created `draft` cycle is used, matching the coordinator's "work on
- * the current cycle" flow.
+ * the current cycle" flow. Once a cycle is published there is no draft, so the
+ * latest non-archived cycle is returned instead — this keeps the calendar and
+ * clash views readable after publishing.
  */
 export async function resolveExamCycle(examCycleId?: string) {
   const cycle = examCycleId
     ? await prisma.examCycle.findUnique({ where: { id: examCycleId } })
-    : await prisma.examCycle.findFirst({ where: { status: 'draft' }, orderBy: { created_at: 'desc' } })
+    : await prisma.examCycle.findFirst({
+        where: { status: { in: ['draft', 'published'] } },
+        orderBy: { created_at: 'desc' },
+      })
   if (!cycle) throw new HttpError(404, 'cycle_not_found', 'No active exam cycle found')
   return cycle
 }
