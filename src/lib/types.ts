@@ -195,3 +195,178 @@ export interface ClashCandidate {
   date: string
   time_slot_id: string
 }
+
+// ── Real API (Steps 9–11) ──────────────────────────────────────────────────
+
+export interface ApiCycle {
+  id: string
+  name: string
+  term: string
+  start_date: string
+  end_date: string
+  status: string
+}
+
+export interface ApiDepartment {
+  id: string
+  code: string
+  name: string
+}
+
+export interface ApiCourse {
+  id: string
+  course_code: string
+  title: string
+  department_id: string
+  credit_hours: number
+}
+
+export interface ApiSection {
+  id: string
+  course_id: string
+  course_code: string
+  title: string
+  department_id: string
+  batch: string
+  semester: string
+  enrolled_count: number
+}
+
+export interface ApiRoom {
+  id: string
+  name: string
+  department_id: string | null
+  capacity: number
+}
+
+export interface ApiTimeSlot {
+  id: string
+  label: string
+  start_time: string
+  end_time: string
+}
+
+export interface SchedulingCatalog {
+  cycle: ApiCycle | null
+  departments: ApiDepartment[]
+  courses: ApiCourse[]
+  sections: ApiSection[]
+  rooms: ApiRoom[]
+  time_slots: ApiTimeSlot[]
+  batches: string[]
+}
+
+export type ApiScheduleStatus = 'scheduled' | 'needs_review'
+
+export interface ApiScheduleEntry {
+  id: string
+  exam_cycle_id: string
+  section_id: string
+  course_code: string
+  course_title: string
+  department_id: string
+  department_code: string
+  department_name: string
+  batch: string
+  semester: string
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  room_id: string
+  room_name: string
+  room_capacity: number
+  enrolled_count: number
+  status: ApiScheduleStatus
+  created_by: string
+  created_at: string
+}
+
+export interface ApiScheduleList {
+  entries: ApiScheduleEntry[]
+  total: number
+  page: number
+  page_size: number
+  summary: {
+    total: number
+    scheduled: number
+    needs_review: number
+    same_slot: number
+    same_day: number
+  }
+}
+
+export interface ApiClashHit {
+  type: 'same_slot' | 'same_day'
+  severity: 'high' | 'medium'
+  student: { id: string; regId: string; name: string }
+  conflictEntryId: string
+  conflictSectionId: string
+  conflictCourseCode: string
+  conflictDate: string
+  conflictTimeSlotId: string
+}
+
+export interface ApiClashCheckResult {
+  clashes: ApiClashHit[]
+  dayLoadWarnings: ApiClashHit[]
+}
+
+export interface ApiSaveResult {
+  entry: ApiScheduleEntry
+  clashes: ApiClashHit[]
+  dayLoadWarnings: ApiClashHit[]
+  overridden: boolean
+}
+
+export interface ApiClashEntryRef {
+  id: string
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  course_code: string
+}
+
+export interface ApiClashRecord {
+  id: string
+  type: 'same_slot' | 'same_day'
+  exam_cycle_id: string
+  student: { id: string; reg_id: string; name: string }
+  schedule_entry_ids: string[]
+  entries: ApiClashEntryRef[]
+  severity: 'high' | 'medium'
+  status: 'open' | 'overridden' | 'resolved'
+  override_reason: string | null
+  created_at: string
+}
+
+export interface ApiClashList {
+  clashes: ApiClashRecord[]
+  total: number
+  page: number
+  page_size: number
+  summary: {
+    open: number
+    overridden: number
+    resolved: number
+    same_slot: number
+    same_day: number
+  }
+}
+
+export interface ApiGenerateResult {
+  cycle_id: string
+  scheduled: number
+  needs_review: number
+  same_slot: number
+  same_day: number
+  entries: ApiScheduleEntry[]
+}
+
+export interface ApiGenerateJob {
+  id: string
+  status: 'running' | 'completed' | 'failed'
+  createdAt: string
+  completedAt?: string
+  result?: ApiGenerateResult
+  error?: string
+}

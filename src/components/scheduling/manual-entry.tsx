@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Save, Siren } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Save, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,34 +7,33 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast-store'
+import { ApiError } from '@/services/api-client'
 import { CalendarPicker } from '@/components/scheduling/calendar-picker'
 import {
-  buildScheduleEntries,
-  courses,
-  departments,
-  EXAM_CYCLE,
-  EXAM_WINDOW,
-  formatDateLabel,
-  invigilators,
-  rooms,
-  sectionsFor,
-  timeSlots,
-} from '@/config/scheduling-data'
-import {
-  detectClashes,
-  hasBlockingClash,
-  hasDayLoadWarning,
-  roomSameDayLoad,
-} from '@/lib/clash-check'
+  affectedStudents,
+  checkClash,
+  conflictingCourses,
+  createEntry,
+  deleteEntry,
+  fetchCatalog,
+  fetchScheduleEntries,
+} from '@/services/scheduling-service'
+import { formatDateLabel } from '@/config/scheduling-data'
 import { cn } from '@/lib/utils'
-import type { MockScheduleEntry, MockTimeSlot } from '@/lib/types'
+import type {
+  ApiClashCheckResult,
+  ApiClashHit,
+  ApiScheduleEntry,
+  ApiTimeSlot,
+  SchedulingCatalog,
+} from '@/lib/types'
 
 function SlotChip({
   slot,
   active,
   onSelect,
 }: {
-  slot: MockTimeSlot
+  slot: ApiTimeSlot
   active: boolean
   onSelect: () => void
 }) {
@@ -58,122 +57,211 @@ function SlotChip({
 }
 
 export function ManualEntry() {
+  const [catalog, setCatalog] = useState<SchedulingCatalog | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [entries, setEntries] = useState<ApiScheduleEntry[]>([])
+  const [saving, setSaving] = useState(false)
+
   const [departmentId, setDepartmentId] = useState('')
-  const [courseCode, setCourseCode] = useState('')
+  const [courseId, setCourseId] = useState('')
+  const [sectionId, setSectionId] = useState('')
   const [date, setDate] = useState('')
   const [slotId, setSlotId] = useState('')
   const [roomId, setRoomId] = useState('')
-  const [invigilatorId, setInvigilatorId] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
-  const [savedEntries, setSavedEntries] = useState<MockScheduleEntry[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const baseEntries = useMemo(() => buildScheduleEntries().entries, [])
-  const entries = useMemo(() => [...baseEntries, ...savedEntries], [baseEntries, savedEntries])
+  const [clashResult, setClashResult] = useState<ApiClashCheckResult | null>(null)
+  const [checking, setChecking] = useState(false)
+  const clashSeq = useRef(0)
 
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([fetchCatalog(), fetchScheduleEntries({ page_size: 200 })])
+      .then(([cat, list]) => {
+        if (cancelled) return
+        setCatalog(cat)
+        setEntries(list.entries)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setLoadError(err instanceof Error ? err.message : 'Failed to load scheduling data')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sectionId || !date || !slotId) {
+      setClashResult(null)
+      return
+    }
+    const seq = ++clashSeq.current
+    setChecking(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkClash({ section_id: sectionId, date, time_slot_id: slotId })
+        if (clashSeq.current === seq) setClashResult(res)
+      } catch (err: unknown) {
+        if (clashSeq.current === seq) {
+          setClashResult(null)
+          toast({
+            variant: 'danger',
+            title: 'Clash check failed',
+            description: err instanceof Error ? err.message : 'Unexpected error',
+          })
+        }
+      } finally {
+        if (clashSeq.current === seq) setChecking(false)
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [sectionId, date, slotId])
+
+  const cycle = catalog?.cycle ?? null
   const course = useMemo(
-    () => courses.find((c) => c.course_code === courseCode) ?? null,
-    [courseCode],
+    () => catalog?.courses.find((c) => c.id === courseId) ?? null,
+    [catalog, courseId],
+  )
+  const section = useMemo(
+    () => catalog?.sections.find((s) => s.id === sectionId) ?? null,
+    [catalog, sectionId],
   )
   const slot = useMemo(
-    () => timeSlots.find((s) => s.id === slotId) ?? null,
-    [slotId],
+    () => catalog?.time_slots.find((s) => s.id === slotId) ?? null,
+    [catalog, slotId],
   )
-  const room = useMemo(() => rooms.find((r) => r.id === roomId) ?? null, [roomId])
-  const invigilator = useMemo(
-    () => invigilators.find((i) => i.id === invigilatorId) ?? null,
-    [invigilatorId],
+  const room = useMemo(() => catalog?.rooms.find((r) => r.id === roomId) ?? null, [catalog, roomId])
+  const roomLoad = useMemo(
+    () => entries.filter((e) => e.date === date && e.room_id === roomId),
+    [entries, date, roomId],
   )
 
-  const typicalEnroll = useMemo(() => {
-    if (!course) return 0
-    const courseIndex = courses.findIndex((c) => c.course_code === course.course_code)
-    return Math.max(...sectionsFor(courseIndex, course).map((s) => s.enrolled_count))
-  }, [course])
-
-  const clashes = useMemo(() => {
-    if (!course || !date || !slot) return []
-    return detectClashes({ program: course.program_code, date, time_slot_id: slot.id }, entries)
-  }, [course, date, slot, entries])
-
-  const roomLoad = useMemo(() => {
-    if (!date || !room) return []
-    return roomSameDayLoad(entries, date, room.id)
-  }, [date, room, entries])
-
-  const blocking = hasBlockingClash(clashes)
-  const dayWarn = hasDayLoadWarning(clashes) || roomLoad.length > 0
-  const checksRun = Boolean(course && date && slot)
+  const blocking = Boolean(clashResult && clashResult.clashes.length > 0)
+  const dayWarn = Boolean(clashResult && clashResult.dayLoadWarnings.length > 0) || roomLoad.length > 0
+  const checksRun = Boolean(sectionId && date && slotId)
 
   const courseOptions = useMemo(
     () =>
-      courses
+      (catalog?.courses ?? [])
         .filter((c) => c.department_id === departmentId)
-        .map((c) => ({ value: c.course_code, label: `${c.course_code} — ${c.title}` })),
-    [departmentId],
+        .map((c) => ({ value: c.id, label: `${c.course_code} — ${c.title}` })),
+    [catalog, departmentId],
+  )
+  const sectionOptions = useMemo(
+    () =>
+      (catalog?.sections ?? [])
+        .filter((s) => s.course_id === courseId)
+        .map((s) => ({
+          value: s.id,
+          label: `Batch ${s.batch} · ${s.semester} · ${s.enrolled_count} enrolled`,
+        })),
+    [catalog, courseId],
   )
   const roomOptions = useMemo(
-    () => rooms.map((r) => ({ value: r.id, label: `${r.name} · Cap ${r.capacity}` })),
-    [],
-  )
-  const invigilatorOptions = useMemo(
-    () =>
-      invigilators.map((i) => ({
-        value: i.id,
-        label: `${i.name} · ${i.department_name} · ${i.availability} (${i.assigned_count}/${i.max_assignments_per_cycle})`,
-      })),
-    [],
+    () => (catalog?.rooms ?? []).map((r) => ({ value: r.id, label: `${r.name} · Cap ${r.capacity}` })),
+    [catalog],
   )
 
   const canSave =
-    Boolean(departmentId && courseCode && date && slotId && roomId && invigilatorId) &&
-    (!blocking || overrideReason.trim().length > 0)
+    Boolean(departmentId && courseId && sectionId && date && slotId && roomId) &&
+    (!blocking || overrideReason.trim().length > 0) &&
+    !saving
 
   const resetForm = () => {
-    setCourseCode('')
+    setCourseId('')
+    setSectionId('')
     setDate('')
     setSlotId('')
     setRoomId('')
-    setInvigilatorId('')
     setOverrideReason('')
+    setClashResult(null)
   }
 
-  const handleSave = () => {
-    if (!course || !slot || !room || !invigilator) return
-    const entry: MockScheduleEntry = {
-      id: `se-manual-${Date.now()}`,
-      exam_cycle_id: EXAM_CYCLE.id,
-      section_id: `sec-manual-${course.course_code.toLowerCase()}-2024`,
-      course_code: course.course_code,
-      course_title: course.title,
-      department_id: course.department_id,
-      program: course.program_code,
-      batch: '2024',
-      date,
-      time_slot_id: slot.id,
-      time_slot_label: slot.label,
-      room_id: room.id,
-      room_name: room.name,
-      room_capacity: room.capacity,
-      enrolled_count: typicalEnroll,
-      status: 'scheduled',
-    }
-    setSavedEntries((list) => [...list, entry])
-    toast({
-      variant: 'success',
-      title: 'Schedule entry saved',
-      description: `${entry.course_code} · ${formatDateLabel(entry.date)} · ${entry.time_slot_label} · ${entry.room_name}`,
-      duration: 8000,
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          setSavedEntries((list) => list.filter((e) => e.id !== entry.id))
-          toast({ variant: 'info', title: 'Save undone', description: `${entry.course_code} was removed from the timetable.` })
+  const handleSave = async () => {
+    if (!section || !slot || !room) return
+    const force = Boolean(blocking && overrideReason.trim())
+    setSaving(true)
+    try {
+      const result = await createEntry({
+        section_id: section.id,
+        date,
+        time_slot_id: slot.id,
+        room_id: room.id,
+        ...(force ? { force: true, override_reason: overrideReason.trim() } : {}),
+      })
+      setEntries((list) => [result.entry, ...list])
+      toast({
+        variant: 'success',
+        title: result.overridden ? 'Schedule entry saved (override)' : 'Schedule entry saved',
+        description: `${result.entry.course_code} · ${formatDateLabel(result.entry.date)} · ${result.entry.time_slot_label} · ${result.entry.room_name}`,
+        duration: 8000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              await deleteEntry(result.entry.id)
+              setEntries((list) => list.filter((e) => e.id !== result.entry.id))
+              toast({ variant: 'info', title: 'Save undone', description: `${result.entry.course_code} was removed from the timetable.` })
+            } catch {
+              toast({ variant: 'danger', title: 'Could not undo', description: 'The entry was not removed.' })
+            }
+          },
         },
-      },
-    })
-    resetForm()
-    setConfirmOpen(false)
+      })
+      resetForm()
+      setConfirmOpen(false)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.body && typeof err.body === 'object') {
+        const details = err.body as { clashes?: ApiClashHit[]; dayLoadWarnings?: ApiClashHit[] }
+        setClashResult({
+          clashes: details.clashes ?? [],
+          dayLoadWarnings: details.dayLoadWarnings ?? [],
+        })
+        toast({
+          variant: 'danger',
+          title: 'Clash detected — save blocked',
+          description: 'These students already have an exam in that slot. Add an override reason to save anyway.',
+        })
+      } else {
+        toast({
+          variant: 'danger',
+          title: 'Save failed',
+          description: err instanceof Error ? err.message : 'Unexpected error',
+        })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <Siren className="h-8 w-8 text-danger" aria-hidden="true" />
+          <div>
+            <p className="font-bold text-ink">Could not load scheduling data</p>
+            <p className="mt-1 text-sm text-ink-muted">{loadError}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Retry
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!catalog) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center gap-3 py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-navy" aria-hidden="true" />
+          <p className="text-sm font-semibold text-ink-muted">Loading scheduling data…</p>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -183,14 +271,15 @@ export function ManualEntry() {
           <CardTitle>New schedule entry</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Select
               label="Department"
-              options={departments.map((d) => ({ value: d.id, label: `${d.code} · ${d.name}` }))}
+              options={(catalog.departments ?? []).map((d) => ({ value: d.id, label: `${d.code} · ${d.name}` }))}
               value={departmentId}
               onChange={(v) => {
                 setDepartmentId(v)
-                setCourseCode('')
+                setCourseId('')
+                setSectionId('')
               }}
               placeholder="Search department…"
               clearable
@@ -198,10 +287,22 @@ export function ManualEntry() {
             <Select
               label="Course"
               options={courseOptions}
-              value={courseCode}
-              onChange={setCourseCode}
+              value={courseId}
+              onChange={(v) => {
+                setCourseId(v)
+                setSectionId('')
+              }}
               placeholder="Filtered by department…"
               disabled={!departmentId}
+              clearable
+            />
+            <Select
+              label="Section / Batch"
+              options={sectionOptions}
+              value={sectionId}
+              onChange={setSectionId}
+              placeholder="Filtered by course…"
+              disabled={!courseId}
               clearable
             />
           </div>
@@ -212,17 +313,19 @@ export function ManualEntry() {
               <CalendarPicker
                 value={date}
                 onChange={setDate}
-                min={EXAM_WINDOW.start}
-                max={EXAM_WINDOW.end}
+                min={cycle?.start_date}
+                max={cycle?.end_date}
               />
               <p className="mt-1.5 text-xs text-ink-muted">
-                Exam window {formatDateLabel(EXAM_WINDOW.start)} – {formatDateLabel(EXAM_WINDOW.end)}
+                {cycle
+                  ? `Exam window ${formatDateLabel(cycle.start_date)} – ${formatDateLabel(cycle.end_date)}`
+                  : 'No active exam cycle'}
               </p>
             </div>
             <div>
               <p className="mb-1.5 text-sm font-medium text-ink">Time slot</p>
               <div className="grid grid-cols-2 gap-2">
-                {timeSlots.map((s) => (
+                {(catalog.time_slots ?? []).map((s) => (
                   <SlotChip key={s.id} slot={s} active={s.id === slotId} onSelect={() => setSlotId(s.id)} />
                 ))}
               </div>
@@ -239,50 +342,32 @@ export function ManualEntry() {
                 placeholder="Search room…"
                 clearable
               />
-              {room && course && (
+              {room && section && (
                 <p
                   className={cn(
                     'mt-1.5 text-xs font-semibold',
-                    room.capacity >= typicalEnroll ? 'text-success' : 'text-danger',
+                    room.capacity >= section.enrolled_count ? 'text-success' : 'text-danger',
                   )}
                 >
-                  {room.capacity >= typicalEnroll
-                    ? `${room.capacity} capacity fits ~${typicalEnroll} enrolled`
-                    : `Insufficient capacity — ${room.capacity} < ${typicalEnroll} enrolled`}
+                  {room.capacity >= section.enrolled_count
+                    ? `${room.capacity} capacity fits ~${section.enrolled_count} enrolled`
+                    : `Insufficient capacity — ${room.capacity} < ${section.enrolled_count} enrolled`}
                 </p>
               )}
             </div>
             <div>
-              <Select
-                label="Invigilator"
-                options={invigilatorOptions}
-                value={invigilatorId}
-                onChange={setInvigilatorId}
-                placeholder="Search name or department…"
-                clearable
-              />
-              {invigilator && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  <Badge variant="info" dot>
-                    {invigilator.department_name}
-                  </Badge>
-                  <Badge
-                    variant={
-                      invigilator.availability === 'Available'
-                        ? 'success'
-                        : invigilator.availability === 'Busy'
-                          ? 'warning'
-                          : 'default'
-                    }
-                    dot
-                  >
-                    {invigilator.availability}
-                  </Badge>
-                  <Badge variant="outline">
-                    {invigilator.assigned_count}/{invigilator.max_assignments_per_cycle} assigned
-                  </Badge>
-                </div>
-              )}
+              <p className="mb-1.5 text-sm font-medium text-ink">Selected section</p>
+              <div className="flex flex-wrap gap-1.5">
+                {section ? (
+                  <>
+                    <Badge variant="info" dot>{section.semester}</Badge>
+                    <Badge variant="outline">Batch {section.batch}</Badge>
+                    <Badge variant="outline">{section.enrolled_count} enrolled</Badge>
+                  </>
+                ) : (
+                  <p className="text-sm text-ink-muted">Pick a course and section first.</p>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -294,20 +379,23 @@ export function ManualEntry() {
             <div className="flex items-start gap-3 rounded-md border border-danger/40 bg-danger-light p-4">
               <Siren className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden="true" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-danger">Clash detected — save blocked</p>
+                <p className="text-sm font-bold text-danger">
+                  {checking ? 'Checking clashes…' : `Clash detected — ${affectedStudents(clashResult?.clashes ?? []).length} student(s) affected`}
+                </p>
                 <ul className="mt-1.5 space-y-1 text-sm text-ink">
-                  {clashes
-                    .filter((c) => c.type === 'same_slot')
-                    .map((c) => (
-                      <li key={c.entry.id}>
-                        {c.entry.course_code} · {formatDateLabel(c.entry.date)} ·{' '}
-                        {c.entry.time_slot_label} — {c.entry.enrolled_count} student(s) affected
-                      </li>
-                    ))}
+                  {affectedStudents(clashResult?.clashes ?? []).map((stu) => (
+                    <li key={stu.id}>
+                      <span className="font-semibold">{stu.regId}</span> · {stu.name} — also sitting{' '}
+                      {conflictingCourses(
+                        (clashResult?.clashes ?? []).filter((h) => h.student.id === stu.id),
+                      ).join(', ')}{' '}
+                      in this slot
+                    </li>
+                  ))}
                 </ul>
                 <p className="mt-1 text-xs text-ink-muted">
-                  These students already have an exam in this slot. Provide an override reason to
-                  save anyway.
+                  These students already have an exam in this slot. Provide an override reason to save
+                  anyway.
                 </p>
               </div>
             </div>
@@ -316,31 +404,39 @@ export function ManualEntry() {
             <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning-light p-4">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-deep" aria-hidden="true" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-warning-deep">Same-day load warning</p>
+                <p className="text-sm font-bold text-warning-deep">
+                  {checking ? 'Checking clashes…' : 'Same-day load warning'}
+                </p>
                 <ul className="mt-1 space-y-1 text-sm text-ink">
-                  {clashes
-                    .filter((c) => c.type === 'same_day')
-                    .map((c) => (
-                      <li key={c.entry.id}>
-                        {c.entry.course_code} · {c.entry.time_slot_label} already on this date
-                      </li>
-                    ))}
+                  {affectedStudents(clashResult?.dayLoadWarnings ?? []).map((stu) => (
+                    <li key={stu.id}>
+                      <span className="font-semibold">{stu.regId}</span> · {stu.name} also has{' '}
+                      {conflictingCourses(
+                        (clashResult?.dayLoadWarnings ?? []).filter((h) => h.student.id === stu.id),
+                      ).join(', ')}{' '}
+                      on this date
+                    </li>
+                  ))}
                   {roomLoad.map((e) => (
                     <li key={e.id}>
                       {e.course_code} already uses {room?.name} on this date ({e.time_slot_label})
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-xs text-ink-muted">
-                  Non-blocking — you can still save.
-                </p>
+                <p className="mt-1 text-xs text-ink-muted">Non-blocking — you can still save.</p>
               </div>
             </div>
           )}
           {!blocking && !dayWarn && (
             <div className="flex items-center gap-3 rounded-md border border-success/40 bg-success-light p-4">
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-success" aria-hidden="true" />
-              <p className="text-sm font-bold text-success">No clashes detected — safe to save</p>
+              {checking ? (
+                <Loader2 className="h-5 w-5 animate-spin text-success" aria-hidden="true" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-success" aria-hidden="true" />
+              )}
+              <p className="text-sm font-bold text-success">
+                {checking ? 'Checking clashes…' : 'No clashes detected — safe to save'}
+              </p>
             </div>
           )}
         </div>
@@ -353,18 +449,27 @@ export function ManualEntry() {
               label="Override reason (required to save)"
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
-              hint="This reason is attached to the entry and visible in the clash log."
+              hint="Written to the override request and visible in the clash log."
             />
           </CardContent>
         </Card>
       )}
 
       <div className="flex items-center justify-end gap-2">
-        <Button variant="secondary" onClick={resetForm} disabled={!departmentId && !courseCode && !date && !slotId && !roomId && !invigilatorId}>
+        <Button
+          variant="secondary"
+          onClick={resetForm}
+          disabled={!courseId && !sectionId && !date && !slotId && !roomId}
+        >
           Clear
         </Button>
         <Button variant="primary" disabled={!canSave} onClick={() => setConfirmOpen(true)}>
-          <Save className="h-4 w-4" aria-hidden="true" /> Save entry
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Save className="h-4 w-4" aria-hidden="true" />
+          )}
+          {blocking ? 'Force-save with override' : 'Save entry'}
         </Button>
       </div>
 
@@ -374,15 +479,15 @@ export function ManualEntry() {
         onConfirm={handleSave}
         title="Save this schedule entry?"
         description={
-          course && slot && room && invigilator
-            ? `${course.course_code} · ${formatDateLabel(date)} · ${slot.label} · ${room.name} · ${invigilator.name}${
+          course && section && slot && room
+            ? `${course.course_code} · Batch ${section.batch} · ${formatDateLabel(date)} · ${slot.label} · ${room.name}${
                 blocking && overrideReason.trim()
                   ? `\nOverride reason: “${overrideReason.trim()}”`
                   : ''
               }`
             : undefined
         }
-        confirmLabel="Save entry"
+        confirmLabel={blocking ? 'Force-save' : 'Save entry'}
         cancelLabel="Cancel"
         variant="primary"
       />

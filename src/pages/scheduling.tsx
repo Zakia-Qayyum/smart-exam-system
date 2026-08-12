@@ -8,8 +8,8 @@ export function SchedulingPage() {
       <div>
         <h1 className="text-2xl font-black tracking-tight text-ink">Scheduling Engine</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Generate a draft timetable in bulk or add individual entries with live clash checks.
-          Mock data for now — wired to the API in a later step.
+          Generate a draft timetable in bulk or add individual entries with live clash checks —
+          powered by the real scheduling and clash APIs.
         </p>
       </div>
 

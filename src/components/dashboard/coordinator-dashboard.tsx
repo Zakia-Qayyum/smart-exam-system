@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast-store'
 import { mockCoordinatorDashboard } from '@/config/mock-data'
 import { roleLabels } from '@/config/roles'
+import { fetchClashes } from '@/services/scheduling-service'
 import { firstName, kindIcon, kindTone, timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
 import type { AuthUser, CoordinatorKpi, NotificationKind } from '@/lib/types'
@@ -315,12 +316,33 @@ function DashboardSkeleton() {
 
 export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true)
+  const [pendingClashes, setPendingClashes] = useState<number | null>(null)
   const data = mockCoordinatorDashboard()
+
+  useEffect(() => {
+    let cancelled = false
+    fetchClashes({ status: 'open', page_size: 1 })
+      .then((list) => {
+        if (!cancelled) setPendingClashes(list.summary.open)
+      })
+      .catch(() => {
+        /* keep the mock fallback when the API is unreachable */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 700)
     return () => clearTimeout(timer)
   }, [])
+
+  const kpis = data.kpis.map((kpi) =>
+    kpi.id === 'kpi-clashes' && pendingClashes !== null
+      ? { ...kpi, value: String(pendingClashes), hint: 'open clashes in the current cycle' }
+      : kpi,
+  )
 
   if (loading) {
     return (
@@ -376,7 +398,7 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {data.kpis.map((kpi) => (
+        {kpis.map((kpi) => (
           <KpiCard key={kpi.id} kpi={kpi} />
         ))}
       </div>
@@ -394,8 +416,8 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
 
       <p className="mt-6 flex items-center gap-1.5 text-xs text-ink-muted">
         <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
-        Mock data — this screen gets its real numbers once the scheduling, clash and assignment
-        modules (Steps 8–11) are live.
+        Pending Clashes is live from the clash API (Step 10); the remaining tiles are wired in later
+        steps.
       </p>
     </div>
   )

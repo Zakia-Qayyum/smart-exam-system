@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
 import { schedulingService } from '../services/scheduling.service.js'
+import { clashService } from '../services/clash-detection.service.js'
+import { resolveExamCycle } from '../lib/schedule-utils.js'
 
 export const schedulingRouter = Router()
 
@@ -32,6 +34,35 @@ const entryBodySchema = z
 const generateBodySchema = z.object({
   exam_cycle_id: z.string().min(1).optional(),
 })
+
+const clashCheckSchema = z.object({
+  exam_cycle_id: z.string().min(1).optional(),
+  section_id: z.string().min(1),
+  date: z.string().regex(datePattern, 'date must be YYYY-MM-DD'),
+  time_slot_id: z.string().min(1),
+  existing_entry_id: z.string().min(1).optional(),
+})
+
+// ── POST /clash-check ───────────────────────────────────────────────────────
+// Synchronous, read-only clash check for the manual-entry screen. Uses the
+// same detection path as a real save so the banner matches the save result.
+schedulingRouter.post(
+  '/clash-check',
+  requireRole(...WRITE_ROLES),
+  validateBody(clashCheckSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof clashCheckSchema>
+    const cycle = await resolveExamCycle(body.exam_cycle_id)
+    const result = await clashService.detectCandidateClashes({
+      cycleId: cycle.id,
+      sectionId: body.section_id,
+      date: body.date,
+      timeSlotId: body.time_slot_id,
+      existingId: body.existing_entry_id,
+    })
+    res.json(result)
+  },
+)
 
 // ── POST /schedule-entries ─────────────────────────────────────────────────
 schedulingRouter.post(

@@ -26,7 +26,7 @@ export class ApiError extends Error {
 }
 
 export interface ApiRequestOptions {
-  method?: 'GET' | 'POST' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   auth?: boolean
 }
