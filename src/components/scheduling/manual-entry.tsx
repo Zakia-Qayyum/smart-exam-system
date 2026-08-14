@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Save, Siren } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, Loader2, Pencil, RefreshCw, Save, Siren } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,6 +18,7 @@ import {
   deleteEntry,
   fetchCatalog,
   fetchScheduleEntries,
+  updateEntry,
 } from '@/services/scheduling-service'
 import { formatDateLabel } from '@/config/scheduling-data'
 import { cn } from '@/lib/utils'
@@ -57,11 +59,13 @@ function SlotChip({
 }
 
 export function ManualEntry() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [catalog, setCatalog] = useState<SchedulingCatalog | null>(null)
   const [loadError, setLoadError] = useState('')
   const [entries, setEntries] = useState<ApiScheduleEntry[]>([])
   const [saving, setSaving] = useState(false)
 
+  const [editing, setEditing] = useState<ApiScheduleEntry | null>(null)
   const [departmentId, setDepartmentId] = useState('')
   const [courseId, setCourseId] = useState('')
   const [sectionId, setSectionId] = useState('')
@@ -74,6 +78,10 @@ export function ManualEntry() {
   const [clashResult, setClashResult] = useState<ApiClashCheckResult | null>(null)
   const [checking, setChecking] = useState(false)
   const clashSeq = useRef(0)
+  const deepLinkApplied = useRef(false)
+
+  const entryParam = searchParams.get('entry')
+  const sectionParam = searchParams.get('section')
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +100,55 @@ export function ManualEntry() {
     }
   }, [])
 
+  // Apply the Clash Center deep link once the catalog + entries are in.
+  useEffect(() => {
+    if (deepLinkApplied.current || !catalog) return
+
+    const clearDeepLink = () => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          for (const key of ['entry', 'section', 'date', 'slot', 'room']) next.delete(key)
+          return next
+        },
+        { replace: true },
+      )
+    }
+
+    if (entryParam) {
+      const entry = entries.find((e) => e.id === entryParam)
+      if (!entry) return
+      const section = catalog.sections.find((s) => s.id === entry.section_id)
+      const course = section ? catalog.courses.find((c) => c.id === section.course_id) : undefined
+      deepLinkApplied.current = true
+      setEditing(entry)
+      setDepartmentId(course?.department_id ?? '')
+      setCourseId(section?.course_id ?? '')
+      setSectionId(entry.section_id)
+      setDate(entry.date)
+      setSlotId(entry.time_slot_id)
+      setRoomId(entry.room_id)
+      clearDeepLink()
+    } else if (sectionParam) {
+      const section = catalog.sections.find((s) => s.id === sectionParam)
+      if (!section) {
+        deepLinkApplied.current = true
+        return
+      }
+      const course = catalog.courses.find((c) => c.id === section.course_id)
+      deepLinkApplied.current = true
+      setDepartmentId(course?.department_id ?? '')
+      setCourseId(section.course_id)
+      setSectionId(section.id)
+      setDate(searchParams.get('date') ?? '')
+      setSlotId(searchParams.get('slot') ?? '')
+      setRoomId(searchParams.get('room') ?? '')
+      clearDeepLink()
+    } else {
+      deepLinkApplied.current = true
+    }
+  }, [catalog, entries, entryParam, sectionParam, searchParams, setSearchParams])
+
   useEffect(() => {
     if (!sectionId || !date || !slotId) {
       setClashResult(null)
@@ -101,7 +158,12 @@ export function ManualEntry() {
     setChecking(true)
     const timer = setTimeout(async () => {
       try {
-        const res = await checkClash({ section_id: sectionId, date, time_slot_id: slotId })
+        const res = await checkClash({
+          section_id: sectionId,
+          date,
+          time_slot_id: slotId,
+          ...(editing ? { existing_entry_id: editing.id } : {}),
+        })
         if (clashSeq.current === seq) setClashResult(res)
       } catch (err: unknown) {
         if (clashSeq.current === seq) {
@@ -117,7 +179,7 @@ export function ManualEntry() {
       }
     }, 250)
     return () => clearTimeout(timer)
-  }, [sectionId, date, slotId])
+  }, [sectionId, date, slotId, editing])
 
   const cycle = catalog?.cycle ?? null
   const course = useMemo(
@@ -170,6 +232,7 @@ export function ManualEntry() {
     !saving
 
   const resetForm = () => {
+    setEditing(null)
     setCourseId('')
     setSectionId('')
     setDate('')
@@ -184,31 +247,42 @@ export function ManualEntry() {
     const force = Boolean(blocking && overrideReason.trim())
     setSaving(true)
     try {
-      const result = await createEntry({
+      const input = {
         section_id: section.id,
         date,
         time_slot_id: slot.id,
         room_id: room.id,
         ...(force ? { force: true, override_reason: overrideReason.trim() } : {}),
-      })
-      setEntries((list) => [result.entry, ...list])
+      }
+      const result = editing ? await updateEntry(editing.id, input) : await createEntry(input)
+      setEntries((list) =>
+        editing ? list.map((e) => (e.id === editing.id ? result.entry : e)) : [result.entry, ...list],
+      )
       toast({
         variant: 'success',
-        title: result.overridden ? 'Schedule entry saved (override)' : 'Schedule entry saved',
+        title: result.overridden
+          ? 'Schedule entry saved (override)'
+          : editing
+            ? 'Schedule entry updated'
+            : 'Schedule entry saved',
         description: `${result.entry.course_code} · ${formatDateLabel(result.entry.date)} · ${result.entry.time_slot_label} · ${result.entry.room_name}`,
         duration: 8000,
-        action: {
-          label: 'Undo',
-          onClick: async () => {
-            try {
-              await deleteEntry(result.entry.id)
-              setEntries((list) => list.filter((e) => e.id !== result.entry.id))
-              toast({ variant: 'info', title: 'Save undone', description: `${result.entry.course_code} was removed from the timetable.` })
-            } catch {
-              toast({ variant: 'danger', title: 'Could not undo', description: 'The entry was not removed.' })
-            }
-          },
-        },
+        ...(editing
+          ? {}
+          : {
+              action: {
+                label: 'Undo',
+                onClick: async () => {
+                  try {
+                    await deleteEntry(result.entry.id)
+                    setEntries((list) => list.filter((e) => e.id !== result.entry.id))
+                    toast({ variant: 'info', title: 'Save undone', description: `${result.entry.course_code} was removed from the timetable.` })
+                  } catch {
+                    toast({ variant: 'danger', title: 'Could not undo', description: 'The entry was not removed.' })
+                  }
+                },
+              },
+            }),
       })
       resetForm()
       setConfirmOpen(false)
@@ -266,9 +340,37 @@ export function ManualEntry() {
 
   return (
     <div className="space-y-4">
+      {editing && (
+        <div className="flex items-start gap-3 rounded-md border border-navy/20 bg-navy px-4 py-3 text-white shadow-soft animate-[modalIn_220ms_ease-out]">
+          <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Editing {editing.course_code} · Batch {editing.batch}</p>
+            <p className="text-xs text-white/80">
+              Currently {formatDateLabel(editing.date)} · {editing.time_slot_label} · {editing.room_name}.
+              Pick a new date or slot and save — the previous slot is released once you save.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-white hover:bg-white/10 hover:text-white"
+            onClick={() => {
+              resetForm()
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                next.delete('entry')
+                return next
+              }, { replace: true })
+            }}
+          >
+            Cancel edit
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>New schedule entry</CardTitle>
+          <CardTitle>{editing ? 'Edit schedule entry' : 'New schedule entry'}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -469,7 +571,7 @@ export function ManualEntry() {
           ) : (
             <Save className="h-4 w-4" aria-hidden="true" />
           )}
-          {blocking ? 'Force-save with override' : 'Save entry'}
+          {editing ? 'Save changes' : blocking ? 'Force-save with override' : 'Save entry'}
         </Button>
       </div>
 
@@ -477,7 +579,7 @@ export function ManualEntry() {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         onConfirm={handleSave}
-        title="Save this schedule entry?"
+        title={editing ? 'Save these changes?' : 'Save this schedule entry?'}
         description={
           course && section && slot && room
             ? `${course.course_code} · Batch ${section.batch} · ${formatDateLabel(date)} · ${slot.label} · ${room.name}${
@@ -487,7 +589,7 @@ export function ManualEntry() {
               }`
             : undefined
         }
-        confirmLabel={blocking ? 'Force-save' : 'Save entry'}
+        confirmLabel={editing ? 'Save changes' : blocking ? 'Force-save' : 'Save entry'}
         cancelLabel="Cancel"
         variant="primary"
       />

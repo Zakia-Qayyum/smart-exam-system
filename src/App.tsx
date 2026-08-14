@@ -15,6 +15,7 @@ import { DashboardPage } from '@/pages/dashboard'
 import { NotificationsPage } from '@/pages/notifications'
 import { SchedulingPage } from '@/pages/scheduling'
 import { CalendarPage } from '@/pages/calendar'
+import { ClashesPage } from '@/pages/clashes'
 import { ComponentsShowcase } from '@/pages/components-showcase'
 
 const dedicatedPages: Record<string, ComponentType> = {
@@ -22,6 +23,7 @@ const dedicatedPages: Record<string, ComponentType> = {
   '/notifications': NotificationsPage,
   '/scheduling': SchedulingPage,
   '/calendar': CalendarPage,
+  '/clashes': ClashesPage,
 }
 
 function HomeRedirect() {

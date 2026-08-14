@@ -1,8 +1,20 @@
+import { useSearchParams } from 'react-router-dom'
 import { Tabs } from '@/components/ui/tabs'
 import { BulkGenerate } from '@/components/scheduling/bulk-generate'
 import { ManualEntry } from '@/components/scheduling/manual-entry'
 
 export function SchedulingPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requested = searchParams.get('tab')
+  const value = requested === 'manual' ? 'manual' : 'bulk'
+
+  const handleTabChange = (next: string) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'bulk') params.delete('tab')
+    else params.set('tab', next)
+    setSearchParams(params, { replace: true })
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <div>
@@ -15,7 +27,8 @@ export function SchedulingPage() {
 
       <div className="mt-6">
         <Tabs
-          defaultValue="bulk"
+          value={value}
+          onChange={handleTabChange}
           tabs={[
             {
               value: 'bulk',

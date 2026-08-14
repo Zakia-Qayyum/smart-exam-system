@@ -4,6 +4,7 @@ import type {
   ApiClashCheckResult,
   ApiClashList,
   ApiClashRecord,
+  ApiClashScanResult,
   ApiCyclePublish,
   ApiGenerateJob,
   ApiSaveResult,
@@ -82,6 +83,7 @@ export interface ClashCheckInput {
   section_id: string
   date: string
   time_slot_id: string
+  existing_entry_id?: string
 }
 
 /** Synchronous clash check used by the manual-entry screen before saving. */
@@ -156,6 +158,17 @@ export async function fetchClashes(params?: ClashQuery): Promise<ApiClashList> {
     auth: true,
   })
   if (status !== 200) throwFor(status, body, 'Unable to load clashes')
+  return body
+}
+
+/** Re-run full-cycle clash detection with upsert semantics. Returns the scan summary. */
+export async function scanClashes(examCycleId?: string): Promise<ApiClashScanResult> {
+  const { status, body } = await apiFetch<ApiClashScanResult>('/api/clashes/scan', {
+    method: 'POST',
+    body: examCycleId ? { exam_cycle_id: examCycleId } : {},
+    auth: true,
+  })
+  if (status !== 200) throwFor(status, body, 'Unable to scan the cycle for clashes')
   return body
 }
 

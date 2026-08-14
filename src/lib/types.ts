@@ -388,6 +388,16 @@ export interface ApiClashList {
   }
 }
 
+export interface ApiClashScanResult {
+  exam_cycle_id: string
+  created: number
+  resolved: number
+  unchanged: number
+  same_slot: number
+  same_day: number
+  scanned_at: string
+}
+
 export interface ApiGenerateResult {
   cycle_id: string
   scheduled: number
