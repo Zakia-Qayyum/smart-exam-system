@@ -17,6 +17,7 @@ import { SchedulingPage } from '@/pages/scheduling'
 import { CalendarPage } from '@/pages/calendar'
 import { ClashesPage } from '@/pages/clashes'
 import { InvigilatorsPage } from '@/pages/invigilators'
+import { AssignmentsPage } from '@/pages/assignments'
 import { ComponentsShowcase } from '@/pages/components-showcase'
 
 const dedicatedPages: Record<string, ComponentType> = {
@@ -26,6 +27,7 @@ const dedicatedPages: Record<string, ComponentType> = {
   '/calendar': CalendarPage,
   '/clashes': ClashesPage,
   '/invigilators': InvigilatorsPage,
+  '/assignments': AssignmentsPage,
 }
 
 function HomeRedirect() {
