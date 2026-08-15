@@ -147,7 +147,7 @@ schedulingRouter.post(
   validateBody(generateBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof generateBodySchema>
-    const job = schedulingService.startGenerate({ examCycleId: body.exam_cycle_id, createdBy: res.locals.user.id })
+    const job = await schedulingService.startGenerate({ examCycleId: body.exam_cycle_id, createdBy: res.locals.user.id })
     res.status(202).json({ jobId: job.id, status: job.status })
   },
 )

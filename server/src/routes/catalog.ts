@@ -13,10 +13,11 @@ const READ_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator', 'hod'] as c
 const time = (d: Date) => new Date(d).toISOString().slice(11, 16)
 
 /**
- * Reference data for the scheduling screens: the active draft cycle, plus
- * departments, courses, sections (with enrollment counts), rooms and the
- * cycle's time slots. Read-only; the frontend uses this instead of the mock
- * Step 8 config.
+ * Reference data for the scheduling screens: the active exam cycle (draft or
+ * published — matching the scheduling service's cycle resolution, so the UI
+ * can surface the publish lock), plus departments, courses, sections (with
+ * enrollment counts), rooms and the cycle's time slots. Read-only; the
+ * frontend uses this instead of the mock Step 8 config.
  */
 catalogRouter.get(
   '/',
@@ -24,7 +25,7 @@ catalogRouter.get(
   (async (_req, res, next) => {
     try {
       const cycle = await prisma.examCycle.findFirst({
-        where: { status: 'draft' },
+        where: { status: { in: ['draft', 'published'] } },
         orderBy: { created_at: 'desc' },
       })
 

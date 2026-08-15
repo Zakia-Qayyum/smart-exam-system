@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Modal } from '@/components/ui/modal'
 import { toast } from '@/components/ui/toast-store'
+import { ApiError } from '@/services/api-client'
 import {
   fetchCatalog,
   fetchClashes,
@@ -23,6 +24,7 @@ import {
   startGenerate as startGenerateJob,
 } from '@/services/scheduling-service'
 import { formatDateLabel } from '@/config/scheduling-data'
+import { notifyScheduleChanged } from '@/lib/schedule-sync'
 import { cn } from '@/lib/utils'
 import type {
   ApiClashRecord,
@@ -175,7 +177,7 @@ export function BulkGenerate() {
     }
   }, [])
 
-  const canGenerate = Boolean(catalog && cycle)
+  const canGenerate = Boolean(catalog && cycle && cycle.status === 'draft')
 
   const pollJob = async (jobId: string, attemptsLeft: number): Promise<void> => {
     if (attemptsLeft <= 0) {
@@ -198,6 +200,7 @@ export function BulkGenerate() {
     }
     if (job.status === 'completed' && job.result) {
       setProgress(100)
+      notifyScheduleChanged()
       setTimeout(() => {
         setResult(job.result!)
         setPhase('done')
@@ -225,6 +228,12 @@ export function BulkGenerate() {
       await pollJob(jobId, 180)
     } catch (err) {
       setPhase('options')
+      if (err instanceof ApiError && err.status === 409 && err.body && typeof err.body === 'object') {
+        const details = err.body as { status?: string; error?: string }
+        if (details.status === 'cycle_not_editable') {
+          setGenerateError(details.error ?? 'This cycle is published — generating a timetable is locked.')
+        }
+      }
       toast({
         variant: 'danger',
         title: 'Could not start generation',
@@ -479,6 +488,19 @@ export function BulkGenerate() {
 
   return (
     <div className="space-y-4">
+      {cycle?.status === 'published' && (
+        <div className="flex items-start gap-3 rounded-md border border-navy/20 bg-navy px-4 py-3 text-white shadow-soft animate-[modalIn_220ms_ease-out]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">This datesheet is published — generation is locked</p>
+            <p className="text-xs text-white/80">
+              {cycle.name} is live. The backend refuses timetable changes on a published cycle
+              (HTTP 409), so bulk generation is disabled here.
+            </p>
+          </div>
+        </div>
+      )}
+
       <StepHeader step={step} />
 
       <Card>

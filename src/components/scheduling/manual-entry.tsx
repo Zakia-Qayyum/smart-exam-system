@@ -21,6 +21,7 @@ import {
   updateEntry,
 } from '@/services/scheduling-service'
 import { formatDateLabel } from '@/config/scheduling-data'
+import { notifyScheduleChanged } from '@/lib/schedule-sync'
 import { cn } from '@/lib/utils'
 import type {
   ApiClashCheckResult,
@@ -229,6 +230,7 @@ export function ManualEntry() {
   const canSave =
     Boolean(departmentId && courseId && sectionId && date && slotId && roomId) &&
     (!blocking || overrideReason.trim().length > 0) &&
+    cycle?.status === 'draft' &&
     !saving
 
   const resetForm = () => {
@@ -258,6 +260,7 @@ export function ManualEntry() {
       setEntries((list) =>
         editing ? list.map((e) => (e.id === editing.id ? result.entry : e)) : [result.entry, ...list],
       )
+      notifyScheduleChanged()
       toast({
         variant: 'success',
         title: result.overridden
@@ -276,6 +279,7 @@ export function ManualEntry() {
                   try {
                     await deleteEntry(result.entry.id)
                     setEntries((list) => list.filter((e) => e.id !== result.entry.id))
+                    notifyScheduleChanged()
                     toast({ variant: 'info', title: 'Save undone', description: `${result.entry.course_code} was removed from the timetable.` })
                   } catch {
                     toast({ variant: 'danger', title: 'Could not undo', description: 'The entry was not removed.' })
@@ -288,16 +292,37 @@ export function ManualEntry() {
       setConfirmOpen(false)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409 && err.body && typeof err.body === 'object') {
-        const details = err.body as { clashes?: ApiClashHit[]; dayLoadWarnings?: ApiClashHit[] }
-        setClashResult({
-          clashes: details.clashes ?? [],
-          dayLoadWarnings: details.dayLoadWarnings ?? [],
-        })
-        toast({
-          variant: 'danger',
-          title: 'Clash detected — save blocked',
-          description: 'These students already have an exam in that slot. Add an override reason to save anyway.',
-        })
+        const body = err.body as {
+          details?: { clashes?: ApiClashHit[]; dayLoadWarnings?: ApiClashHit[] }
+          clashes?: ApiClashHit[]
+          dayLoadWarnings?: ApiClashHit[]
+          status?: string
+          error?: string
+        }
+        const clashHits = body.details?.clashes ?? body.clashes ?? []
+        if (clashHits.length > 0) {
+          setClashResult({
+            clashes: clashHits,
+            dayLoadWarnings: body.details?.dayLoadWarnings ?? body.dayLoadWarnings ?? [],
+          })
+          toast({
+            variant: 'danger',
+            title: 'Clash detected — save blocked',
+            description: 'These students already have an exam in that slot. Add an override reason to save anyway.',
+          })
+        } else if (body.status === 'cycle_not_editable') {
+          toast({
+            variant: 'danger',
+            title: 'Datesheet is published',
+            description: body.error ?? 'This cycle is published — editing the timetable is locked.',
+          })
+        } else {
+          toast({
+            variant: 'danger',
+            title: 'Save failed',
+            description: body.error ?? (err instanceof Error ? err.message : 'Unexpected error'),
+          })
+        }
       } else {
         toast({
           variant: 'danger',
@@ -340,6 +365,19 @@ export function ManualEntry() {
 
   return (
     <div className="space-y-4">
+      {cycle?.status === 'published' && (
+        <div className="flex items-start gap-3 rounded-md border border-navy/20 bg-navy px-4 py-3 text-white shadow-soft animate-[modalIn_220ms_ease-out]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">This datesheet is published — editing is locked</p>
+            <p className="text-xs text-white/80">
+              {cycle.name} is live. The backend refuses timetable changes on a published cycle
+              (HTTP 409), so the save controls are disabled here.
+            </p>
+          </div>
+        </div>
+      )}
+
       {editing && (
         <div className="flex items-start gap-3 rounded-md border border-navy/20 bg-navy px-4 py-3 text-white shadow-soft animate-[modalIn_220ms_ease-out]">
           <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />

@@ -34,6 +34,7 @@ import type {
   ApiTimeSlot,
   SchedulingCatalog,
 } from '@/lib/types'
+import { onScheduleChanged, notifyScheduleChanged } from '@/lib/schedule-sync'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'month' | 'week'
@@ -551,6 +552,10 @@ export function DatesheetCalendar() {
     void load()
   }, [])
 
+  // Stay in sync with the Scheduling Engine and Clash Center — refresh whenever
+  // timetable data or clash records change elsewhere.
+  useEffect(() => onScheduleChanged(() => void load()), [])
+
   const entriesByDate = useMemo(() => {
     const map = new Map<string, ApiScheduleEntry[]>()
     for (const entry of entries) {
@@ -648,6 +653,7 @@ export function DatesheetCalendar() {
       const result = await publishCycle(cycle.id)
       setSummary((prev) => (prev ? { ...prev, cycle: result.cycle } : prev))
       setPublishOpen(false)
+      notifyScheduleChanged()
       toast({
         title: 'Datesheet published',
         description: `${result.cycle.name} is now live. Everyone has been notified and editing is locked.`,

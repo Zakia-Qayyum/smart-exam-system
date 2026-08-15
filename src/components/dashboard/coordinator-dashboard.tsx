@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarDays, CheckCircle2, Siren } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { toast } from '@/components/ui/toast-store'
 import { mockCoordinatorDashboard } from '@/config/mock-data'
 import { roleLabels } from '@/config/roles'
 import { fetchClashes } from '@/services/scheduling-service'
+import { onScheduleChanged } from '@/lib/schedule-sync'
 import { firstName, kindIcon, kindTone, timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
 import type { AuthUser, CoordinatorKpi, NotificationKind } from '@/lib/types'
@@ -319,7 +320,7 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
   const [pendingClashes, setPendingClashes] = useState<number | null>(null)
   const data = mockCoordinatorDashboard()
 
-  useEffect(() => {
+  const loadClashKpi = useCallback(() => {
     let cancelled = false
     fetchClashes({ status: 'open', page_size: 1 })
       .then((list) => {
@@ -332,6 +333,11 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => loadClashKpi(), [loadClashKpi])
+
+  // Keep the open-clash KPI in step with the Clash Center / Scheduling Engine.
+  useEffect(() => onScheduleChanged(loadClashKpi), [loadClashKpi])
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 700)

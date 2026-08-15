@@ -585,7 +585,12 @@ async function generateSchedule(options: { examCycleId?: string; createdBy: stri
 const generateJobs = new Map<string, GenerateJob>()
 let jobCounter = 0
 
-function startGenerate(options: { examCycleId?: string; createdBy: string }): GenerateJob {
+async function startGenerate(options: { examCycleId?: string; createdBy: string }): Promise<GenerateJob> {
+  // Resolve + enforce the publish-lock here so a published datesheet is refused
+  // immediately instead of letting the async job fail (or wipe entries).
+  const cycle = await resolveExamCycle(options.examCycleId)
+  assertEditable(cycle)
+
   const id = `gen_${Date.now().toString(36)}_${(jobCounter++).toString(36)}`
   const job: GenerateJob = { id, status: 'running', createdAt: new Date().toISOString() }
   generateJobs.set(id, job)

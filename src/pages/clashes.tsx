@@ -29,6 +29,7 @@ import {
   scanClashes,
 } from '@/services/scheduling-service'
 import { formatDateLabel } from '@/config/scheduling-data'
+import { onScheduleChanged, notifyScheduleChanged } from '@/lib/schedule-sync'
 import { timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
 import type {
@@ -352,6 +353,10 @@ export function ClashesPage() {
     void load()
   }, [load])
 
+  // Stay in sync with the Scheduling Engine and Calendar — refresh whenever a
+  // schedule entry or the cycle is changed elsewhere.
+  useEffect(() => onScheduleChanged(() => void load()), [load])
+
   const groups = useMemo(
     () => groupClashes(list?.clashes ?? [], tab),
     [list, tab],
@@ -393,6 +398,7 @@ export function ClashesPage() {
         /* ignore */
       }
       await load()
+      notifyScheduleChanged()
       toast({
         variant: 'success',
         title: 'Scan complete',
@@ -432,6 +438,7 @@ export function ClashesPage() {
       setAction(null)
       setReason('')
       await load()
+      notifyScheduleChanged()
     } catch (err) {
       toast({
         variant: 'danger',
