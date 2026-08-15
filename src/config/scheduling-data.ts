@@ -135,16 +135,73 @@ const availabilityCycle: MockInvigilator['availability'][] = [
   'On leave',
 ]
 
+const designations = [
+  'Lecturer',
+  'Assistant Professor',
+  'Associate Professor',
+  'Teaching Fellow',
+  'Lab Instructor',
+]
+
+const specializationByDepartment: Record<string, string[]> = {
+  'd-cs': ['Programming', 'Data Structures', 'Databases', 'Operating Systems'],
+  'd-se': ['Software Architecture', 'Testing', 'Agile Delivery', 'Project Management'],
+  'd-ai': ['Machine Learning', 'Deep Learning', 'Natural Language Processing'],
+  'd-ds': ['Statistics', 'Big Data', 'Data Visualization'],
+  'd-ba': ['Finance', 'Marketing', 'Human Resources'],
+  'd-ee': ['Circuits', 'Digital Electronics', 'Power Systems'],
+  'd-ma': ['Calculus', 'Linear Algebra', 'Discrete Mathematics'],
+}
+
+export function invigilatorEmailFor(name: string): string {
+  return `${name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '')}@airuni.edu.pk`
+}
+
+function invigilatorPhoneFor(index: number): string {
+  const a = 200 + ((index * 173) % 700)
+  const b = 1000 + ((index * 397) % 9000)
+  return `+92 3${(index % 10) + 1}${String(a).padStart(3, '0')}-${String(b).padStart(4, '0')}`
+}
+
+const assignmentDays = ['2026-08-10', '2026-08-11', '2026-08-12']
+
+function assignmentHistoryFor(index: number, department_id: string): MockInvigilator['assignment_history'] {
+  const deptCourses = courses.filter((c) => c.department_id === department_id)
+  return assignmentDays.map((date, k) => {
+    const course = deptCourses[(index + k * 2) % Math.max(deptCourses.length, 1)]
+    const slot = timeSlots[(index + k) % timeSlots.length]
+    const room = rooms[(index + k * 3) % rooms.length]
+    return {
+      id: `asg-${index + 1}-${k + 1}`,
+      course_code: course?.course_code ?? '—',
+      course_title: course?.title ?? '—',
+      date,
+      time_slot_label: slot.label,
+      room_name: room.name,
+      status: k === 2 ? 'confirmed' : 'completed',
+    }
+  })
+}
+
 export const invigilators: MockInvigilator[] = invigilatorNames.map((name, i) => {
   const dept = departments[i % departments.length]
+  const tags = specializationByDepartment[dept.id] ?? ['General']
   return {
     id: `inv-${i + 1}`,
     name,
     department_id: dept.id,
-    department_name: dept.code,
+    department_name: dept.name,
     availability: availabilityCycle[i % availabilityCycle.length],
     assigned_count: i % 4,
     max_assignments_per_cycle: 5,
+    designation: designations[i % designations.length],
+    email: invigilatorEmailFor(name),
+    phone: invigilatorPhoneFor(i),
+    specialization_tags: tags.slice(0, 1 + (i % 3)),
+    assignment_history: assignmentHistoryFor(i, dept.id),
   }
 })
 

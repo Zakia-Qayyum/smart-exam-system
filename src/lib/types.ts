@@ -136,6 +136,16 @@ export interface MockRoom {
   capacity: number
 }
 
+export interface MockInvigilatorAssignment {
+  id: string
+  course_code: string
+  course_title: string
+  date: string
+  time_slot_label: string
+  room_name: string
+  status: 'confirmed' | 'assigned' | 'completed'
+}
+
 export interface MockInvigilator {
   id: string
   name: string
@@ -144,6 +154,11 @@ export interface MockInvigilator {
   availability: 'Available' | 'Busy' | 'On leave'
   assigned_count: number
   max_assignments_per_cycle: number
+  designation: string
+  email: string
+  phone: string
+  specialization_tags: string[]
+  assignment_history: MockInvigilatorAssignment[]
 }
 
 export interface MockSection {
