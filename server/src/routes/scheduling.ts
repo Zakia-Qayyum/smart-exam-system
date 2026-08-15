@@ -23,6 +23,7 @@ const entryBodySchema = z
     date: z.string().regex(datePattern, 'date must be YYYY-MM-DD'),
     time_slot_id: z.string().min(1),
     room_id: z.string().min(1),
+    invigilator_id: z.string().optional(),
     force: z.boolean().optional(),
     override_reason: z.string().min(1).optional(),
   })

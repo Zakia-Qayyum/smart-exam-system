@@ -20,6 +20,12 @@ export interface EntryInput {
   date: string
   time_slot_id: string
   room_id: string
+  /**
+   * Optional invigilator to assign to this entry. An empty string clears the
+   * assignment; `undefined` leaves any existing assignment untouched (used by
+   * flows that save entries without touching invigilation).
+   */
+  invigilator_id?: string
 }
 
 export interface SaveOptions {
@@ -205,6 +211,14 @@ async function validateEntry(input: EntryInput, existingId?: string) {
     })
   }
 
+  const invigilatorId = input.invigilator_id?.trim() ?? ''
+  if (invigilatorId) {
+    const invigilator = await prisma.invigilator.findUnique({ where: { id: invigilatorId } })
+    if (!invigilator) {
+      throw new HttpError(404, 'invigilator_not_found', 'Invigilator not found in the directory')
+    }
+  }
+
   const sectionWhere = { exam_cycle_id: cycle.id, section_id: input.section_id }
   const duplicate = existingId
     ? await prisma.scheduleEntry.findFirst({ where: { ...sectionWhere, id: { not: existingId } } })
@@ -213,14 +227,15 @@ async function validateEntry(input: EntryInput, existingId?: string) {
     throw new HttpError(409, 'section_already_scheduled', 'This section already has an exam in the selected cycle')
   }
 
-  return { cycle, room, enrolled_count }
+  return { cycle, room, enrolled_count, invigilatorId }
 }
 
 // ── Create / update / delete ───────────────────────────────────────────────
 
 async function saveEntry(input: EntryInput, options: SaveOptions): Promise<ScheduleSaveResult> {
-  const { cycle, room } = await validateEntry(input, options.existingId)
+  const { cycle, room, invigilatorId } = await validateEntry(input, options.existingId)
   assertEditable(cycle)
+  const invigilatorProvided = typeof input.invigilator_id === 'string'
 
   if (options.existingId) {
     const existing = await prisma.scheduleEntry.findUnique({ where: { id: options.existingId } })
@@ -282,6 +297,14 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
     await prisma.$transaction(async (tx) => {
       await tx.clashRecord.deleteMany({ where: { schedule_entry_ids: { has: entryId } } })
       await tx.scheduleEntry.update({ where: { id: entryId }, data: baseData })
+      if (invigilatorProvided) {
+        await tx.invigilatorAssignment.deleteMany({ where: { schedule_entry_id: entryId } })
+        if (invigilatorId) {
+          await tx.invigilatorAssignment.create({
+            data: { schedule_entry_id: entryId, invigilator_id: invigilatorId },
+          })
+        }
+      }
       const clashRows = makeClashRows(entryId)
       if (clashRows.length) await tx.clashRecord.createMany({ data: clashRows })
       if (force) {
@@ -303,7 +326,7 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
           target_type: 'schedule_entry',
           target_id: entryId,
           performed_by: options.createdBy,
-          meta: { clashes: result.clashes.length, day_warnings: result.dayLoadWarnings.length, room: room.name },
+          meta: { clashes: result.clashes.length, day_warnings: result.dayLoadWarnings.length, room: room.name, invigilator_id: invigilatorId || null },
         },
       })
     })
@@ -311,6 +334,11 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
     await prisma.$transaction(async (tx) => {
       const created = await tx.scheduleEntry.create({ data: { ...baseData, created_by: options.createdBy } })
       entryId = created.id
+      if (invigilatorId) {
+        await tx.invigilatorAssignment.create({
+          data: { schedule_entry_id: entryId, invigilator_id: invigilatorId },
+        })
+      }
       const clashRows = makeClashRows(entryId)
       if (clashRows.length) await tx.clashRecord.createMany({ data: clashRows })
       if (force) {
@@ -332,7 +360,7 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
           target_type: 'schedule_entry',
           target_id: entryId,
           performed_by: options.createdBy,
-          meta: { clashes: result.clashes.length, day_warnings: result.dayLoadWarnings.length, room: room.name },
+          meta: { clashes: result.clashes.length, day_warnings: result.dayLoadWarnings.length, room: room.name, invigilator_id: invigilatorId || null },
         },
       })
     })

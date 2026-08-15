@@ -267,6 +267,94 @@ export interface ApiInvigilator {
   department_id: string
 }
 
+// ── Invigilator Directory (Step 16 API) ────────────────────────────────────
+
+export interface DirectoryInvigilatorAssignment {
+  id: string
+  course_code: string
+  course_title: string
+  date: string
+  time_slot_label: string
+  room_name: string
+  status: 'assigned' | 'confirmed' | 'declined'
+}
+
+export interface DirectoryInvigilator {
+  id: string
+  name: string
+  department_id: string
+  department_name: string
+  availability: 'Available' | 'Busy' | 'On leave'
+  assigned_count: number
+  max_assignments_per_cycle: number
+  designation: string
+  email: string
+  phone: string
+  specialization_tags: string[]
+  assignment_history: DirectoryInvigilatorAssignment[]
+}
+
+export interface InvigilatorListSummary {
+  total: number
+  available: number
+  busy: number
+  on_leave: number
+  assigned: number
+  max: number
+}
+
+export interface InvigilatorList {
+  cycle: ApiCycle | null
+  invigilators: DirectoryInvigilator[]
+  total: number
+  page: number
+  page_size: number
+  summary: InvigilatorListSummary
+}
+
+export interface ImportPreviewRow {
+  line: number
+  name: string
+  email: string
+  department_raw: string
+  department_id: string
+  department_name: string
+  designation: string
+  max_assignments_per_cycle: number | null
+  max_raw: string
+  specialization_tags: string[]
+  errors: string[]
+  duplicate: boolean
+}
+
+export interface ImportPreviewSummary {
+  total: number
+  valid: number
+  duplicates: number
+  invalid: number
+}
+
+export interface ImportPreview {
+  rows: ImportPreviewRow[]
+  summary: ImportPreviewSummary
+}
+
+export interface BulkImportResult {
+  imported: number
+  skippedDuplicates: number
+  failed: number
+}
+
+export interface InvigilatorCreateInput {
+  name: string
+  email: string
+  department_id: string
+  max_assignments_per_cycle?: number
+  specialization_tags?: string[]
+}
+
+export type InvigilatorUpdateInput = Partial<InvigilatorCreateInput>
+
 export interface SchedulingCatalog {
   cycle: ApiCycle | null
   departments: ApiDepartment[]

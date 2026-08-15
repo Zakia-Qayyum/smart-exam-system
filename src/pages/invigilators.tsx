@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
@@ -22,46 +22,39 @@ import { Modal } from '@/components/ui/modal'
 import { Select, type SelectOption } from '@/components/ui/select'
 import { StatusChip } from '@/components/ui/status-chip'
 import { toast } from '@/components/ui/toast-store'
-import { departments, formatDateLabel, invigilators as baseInvigilators } from '@/config/scheduling-data'
+import { ApiError } from '@/services/api-client'
+import { fetchCatalog } from '@/services/scheduling-service'
+import {
+  commitBulkImport,
+  createInvigilator,
+  previewBulkImport,
+  updateInvigilator,
+} from '@/services/invigilators-service'
+import { useInvigilatorsStore } from '@/stores/invigilators-store'
+import { formatDateLabel } from '@/config/scheduling-data'
 import { cn } from '@/lib/utils'
-import type { MockInvigilator, MockInvigilatorAssignment } from '@/lib/types'
+import type {
+  ApiDepartment,
+  BulkImportResult,
+  DirectoryInvigilator,
+  DirectoryInvigilatorAssignment,
+  ImportPreviewRow,
+} from '@/lib/types'
 
-const ADDITIONS_KEY = 'ses.invigilators.additions'
-const OVERRIDES_KEY = 'ses.invigilators.overrides'
-
-const DESIGNATION_OPTIONS = [
-  'Lecturer',
-  'Assistant Professor',
-  'Associate Professor',
-  'Teaching Fellow',
-  'Lab Instructor',
-]
-
-const AVAILABILITY_OPTIONS: Array<{ value: MockInvigilator['availability']; label: string }> = [
-  { value: 'Available', label: 'Available' },
-  { value: 'Busy', label: 'Busy' },
-  { value: 'On leave', label: 'On leave' },
-]
-
-const ASSIGNMENT_STATUS: Record<MockInvigilatorAssignment['status'], { label: string; chip: 'no-clash' | 'pending' | 'info' }> = {
-  completed: { label: 'Completed', chip: 'no-clash' },
+const ASSIGNMENT_STATUS: Record<
+  DirectoryInvigilatorAssignment['status'],
+  { label: string; chip: 'no-clash' | 'pending' | 'info' | 'clash' }
+> = {
   confirmed: { label: 'Confirmed', chip: 'info' },
   assigned: { label: 'Assigned', chip: 'pending' },
+  declined: { label: 'Declined', chip: 'clash' },
 }
 
-type AvailabilityFilter = 'all' | MockInvigilator['availability']
+type AvailabilityFilter = 'all' | DirectoryInvigilator['availability']
 
-function readStorage<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return fallback
-    return JSON.parse(raw) as T
-  } catch {
-    return fallback
-  }
-}
-
-function availabilityChip(availability: MockInvigilator['availability']): { label: string; chip: 'no-clash' | 'pending' | 'clash' } {
+function availabilityChip(
+  availability: DirectoryInvigilator['availability'],
+): { label: string; chip: 'no-clash' | 'pending' | 'clash' } {
   switch (availability) {
     case 'Available':
       return { label: 'Available', chip: 'no-clash' }
@@ -77,126 +70,6 @@ function progressWidth(assigned: number, max: number): number {
   return Math.min(100, Math.round((assigned / max) * 100))
 }
 
-// ── CSV parsing for the two-phase bulk import ──────────────────────────────
-
-function parseCsvLine(line: string): string[] {
-  const cells: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          current += '"'
-          i++
-        } else {
-          inQuotes = false
-        }
-      } else {
-        current += ch
-      }
-    } else if (ch === '"') {
-      inQuotes = true
-    } else if (ch === ',') {
-      cells.push(current)
-      current = ''
-    } else {
-      current += ch
-    }
-  }
-  cells.push(current)
-  return cells
-}
-
-interface ImportRow {
-  key: string
-  name: string
-  email: string
-  department_raw: string
-  designation: string
-  max_raw: string
-  tags: string[]
-  department_id: string
-  department_name: string
-  errors: string[]
-  duplicate: boolean
-}
-
-function parseImportText(text: string, roster: MockInvigilator[]): ImportRow[] {
-  const existingEmails = new Set(roster.map((i) => i.email.toLowerCase()))
-  const existingNames = new Set(roster.map((i) => i.name.toLowerCase()))
-  const fileEmails = new Set<string>()
-  const fileNames = new Set<string>()
-
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      const cells = parseCsvLine(line).map((cell) => cell.trim())
-      const [name = '', email = '', department_raw = '', designation = '', max_raw = '', tagsRaw = ''] = cells
-      const errors: string[] = []
-
-      if (!name) errors.push('Name is required')
-
-      const emailLc = email.toLowerCase()
-      if (!email) errors.push('Email is required')
-      else if (!/^\S+@\S+\.\S+$/.test(emailLc)) errors.push('Email is not a valid address')
-      else if (existingEmails.has(emailLc) || fileEmails.has(emailLc)) errors.push('Duplicate email')
-      fileEmails.add(emailLc)
-
-      if (existingNames.has(name.toLowerCase()) || fileNames.has(name.toLowerCase())) {
-        if (errors.length === 0) errors.push('Duplicate name')
-      }
-      fileNames.add(name.toLowerCase())
-
-      const dept = departments.find(
-        (d) =>
-          d.code.toLowerCase() === department_raw.toLowerCase() ||
-          d.name.toLowerCase() === department_raw.toLowerCase() ||
-          d.id.toLowerCase() === department_raw.toLowerCase(),
-      )
-      if (!department_raw) errors.push('Department is required')
-      else if (!dept) errors.push(`Unknown department “${department_raw}”`)
-
-      if (max_raw) {
-        const parsed = Number.parseInt(max_raw, 10)
-        if (Number.isNaN(parsed) || parsed < 1) errors.push('Max assignments must be a positive number')
-      }
-
-      const tags = tagsRaw
-        .split(/[;|]/)
-        .map((t) => t.trim())
-        .filter(Boolean)
-
-      return {
-        key: `row-${index}`,
-        name,
-        email,
-        department_raw,
-        designation: designation || 'Teaching Fellow',
-        max_raw,
-        tags,
-        department_id: dept?.id ?? '',
-        department_name: dept?.name ?? '',
-        errors,
-        duplicate: errors.some((e) => e.startsWith('Duplicate')),
-      }
-    })
-}
-
-const SAMPLE_IMPORT = `Adeel Rana, adeel.rana@airuni.edu.pk, CS, Lecturer, 5, Programming; Databases
-Nimra Javed, nimra.javed@airuni.edu.pk, d-se, Assistant Professor, 4, Testing; Agile Delivery
-Usman Tariq, usman.tariq@airuni.edu.pk, d-cs, Associate Professor, 5, Programming
-TBD, bad-email, XR, , ,`
-
-function importStatus(row: ImportRow): { label: string; variant: 'success' | 'warning' | 'danger' } {
-  if (row.duplicate) return { label: 'Duplicate', variant: 'warning' }
-  if (row.errors.length > 0) return { label: 'Invalid', variant: 'danger' }
-  return { label: 'Valid', variant: 'success' }
-}
-
 // ── Profile drawer ─────────────────────────────────────────────────────────
 
 function ProfileDrawer({
@@ -205,7 +78,7 @@ function ProfileDrawer({
   onEdit,
   onNotify,
 }: {
-  invigilator: MockInvigilator | null
+  invigilator: DirectoryInvigilator | null
   onClose: () => void
   onEdit: () => void
   onNotify: () => void
@@ -272,13 +145,16 @@ function ProfileDrawer({
               <Mail className="h-4 w-4 shrink-0 text-navy-muted" aria-hidden="true" />
               <span className="min-w-0 truncate text-ink">{invigilator.email}</span>
             </a>
-            <a
-              href={`tel:${invigilator.phone.replace(/\s/g, '')}`}
-              className="flex items-center gap-3 rounded-md border border-line bg-surface/60 px-3.5 py-2.5 text-sm transition-colors hover:border-navy/40 hover:bg-surface"
-            >
+            <div className="flex items-center gap-3 rounded-md border border-line bg-surface/60 px-3.5 py-2.5 text-sm">
               <Phone className="h-4 w-4 shrink-0 text-navy-muted" aria-hidden="true" />
-              <span className="text-ink">{invigilator.phone}</span>
-            </a>
+              {invigilator.phone ? (
+                <a href={`tel:${invigilator.phone.replace(/\s/g, '')}`} className="text-ink">
+                  {invigilator.phone}
+                </a>
+              ) : (
+                <span className="text-ink-muted">Not recorded</span>
+              )}
+            </div>
           </div>
 
           <div className="mt-5">
@@ -327,7 +203,8 @@ function ProfileDrawer({
             <p className="text-[11px] font-bold uppercase tracking-wide text-ink-muted">Assignment history</p>
             {invigilator.assignment_history.length === 0 ? (
               <p className="mt-2 rounded-md border border-dashed border-line bg-surface/60 px-3.5 py-4 text-center text-sm text-ink-muted">
-                No duty history recorded yet.
+                No duty history recorded yet. Assign an invigilator from the Scheduling Engine and it
+                will show up here.
               </p>
             ) : (
               <ul className="mt-2 space-y-2">
@@ -389,10 +266,7 @@ function ProfileDrawer({
 interface FormValues {
   name: string
   email: string
-  phone: string
   department_id: string
-  designation: string
-  availability: MockInvigilator['availability']
   max: string
   specialization_tags: string
 }
@@ -408,49 +282,44 @@ function AddInvigilatorModal({
   open,
   editing,
   roster,
+  departments,
   onClose,
   onSave,
 }: {
   open: boolean
-  editing: MockInvigilator | null
-  roster: MockInvigilator[]
+  editing: DirectoryInvigilator | null
+  roster: DirectoryInvigilator[]
+  departments: ApiDepartment[]
   onClose: () => void
-  onSave: (values: FormValues, editingId: string | null) => void
+  onSave: (values: FormValues, editingId: string | null) => Promise<void>
 }) {
   const [values, setValues] = useState<FormValues>({
     name: '',
     email: '',
-    phone: '',
     department_id: '',
-    designation: DESIGNATION_OPTIONS[0] ?? 'Lecturer',
-    availability: 'Available',
     max: '5',
     specialization_tags: '',
   })
   const [errors, setErrors] = useState<FormErrors>({})
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setErrors({})
+    setSubmitting(false)
     setValues(
       editing
         ? {
             name: editing.name,
             email: editing.email,
-            phone: editing.phone,
             department_id: editing.department_id,
-            designation: editing.designation,
-            availability: editing.availability,
             max: String(editing.max_assignments_per_cycle),
             specialization_tags: editing.specialization_tags.join('; '),
           }
         : {
             name: '',
             email: '',
-            phone: '',
             department_id: '',
-            designation: DESIGNATION_OPTIONS[0] ?? 'Lecturer',
-            availability: 'Available',
             max: '5',
             specialization_tags: '',
           },
@@ -466,9 +335,7 @@ function AddInvigilatorModal({
     const email = values.email.trim().toLowerCase()
     if (!email) next.email = 'Email is required'
     else if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Enter a valid email address'
-    else if (
-      roster.some((i) => i.email.toLowerCase() === email && i.id !== editing?.id)
-    ) {
+    else if (roster.some((i) => i.email.toLowerCase() === email && i.id !== editing?.id)) {
       next.email = 'An invigilator with this email already exists'
     }
     if (!values.department_id) next.department_id = 'Department is required'
@@ -477,18 +344,34 @@ function AddInvigilatorModal({
     return next
   }
 
-  const submit = () => {
+  const submit = async () => {
     const next = validate()
     setErrors(next)
     if (Object.keys(next).length > 0) return
-    onSave(values, editing?.id ?? null)
+    setSubmitting(true)
+    try {
+      await onSave(values, editing?.id ?? null)
+    } catch (err) {
+      if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+        const body = err.body as { error?: string }
+        toast({
+          variant: 'danger',
+          title: 'Could not save invigilator',
+          description: body.error ?? (err instanceof Error ? err.message : 'Unexpected error'),
+        })
+      } else {
+        toast({
+          variant: 'danger',
+          title: 'Could not save invigilator',
+          description: err instanceof Error ? err.message : 'Unexpected error',
+        })
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const departmentOptions: SelectOption[] = [
-    ...departments.map((d) => ({ value: d.id, label: `${d.name} (${d.code})` })),
-  ]
-  const designationOptions: SelectOption[] = DESIGNATION_OPTIONS.map((d) => ({ value: d, label: d }))
-  const availabilityOptions: SelectOption[] = AVAILABILITY_OPTIONS.map((a) => ({ value: a.value, label: a.label }))
+  const departmentOptions: SelectOption[] = departments.map((d) => ({ value: d.id, label: `${d.name} (${d.code})` }))
 
   return (
     <Modal
@@ -498,15 +381,15 @@ function AddInvigilatorModal({
       title={editing ? `Edit ${editing.name}` : 'Add invigilator'}
       description={
         editing
-          ? 'Update the directory record. Changes are applied to this cycle roster.'
+          ? 'Update the directory record. Designation, availability and duty count are derived by the server.'
           : 'Add a new faculty member to the invigilation directory.'
       }
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit}>
+          <Button variant="primary" onClick={submit} disabled={submitting} loading={submitting}>
             {editing ? 'Save changes' : 'Add invigilator'}
           </Button>
         </>
@@ -528,12 +411,6 @@ function AddInvigilatorModal({
           onChange={(e) => set('email', e.target.value)}
           error={errors.email}
         />
-        <Input
-          label="Phone"
-          value={values.phone}
-          onChange={(e) => set('phone', e.target.value)}
-          hint="Optional — used for duty reminders."
-        />
         <div className="sm:col-span-2">
           <Select
             label="Department"
@@ -544,18 +421,6 @@ function AddInvigilatorModal({
             error={errors.department_id}
           />
         </div>
-        <Select
-          label="Designation"
-          options={designationOptions}
-          value={values.designation}
-          onChange={(v) => set('designation', v)}
-        />
-        <Select
-          label="Availability"
-          options={availabilityOptions}
-          value={values.availability}
-          onChange={(v) => set('availability', v as MockInvigilator['availability'])}
-        />
         <Input
           label="Max assignments per cycle"
           type="number"
@@ -563,6 +428,7 @@ function AddInvigilatorModal({
           value={values.max}
           onChange={(e) => set('max', e.target.value)}
           error={errors.max}
+          hint="Defaults to 5. Availability is derived from the current cycle load."
         />
         <Input
           label="Specializations"
@@ -575,30 +441,37 @@ function AddInvigilatorModal({
   )
 }
 
-// ── Bulk import modal (two-phase) ──────────────────────────────────────────
+// ── Bulk import modal (two-phase, server-validated) ────────────────────────
+
+const SAMPLE_IMPORT = `Adeel Rana, adeel.rana@airuni.edu.pk, CS, Lecturer, 5, Programming; Databases
+Nimra Javed, nimra.javed@airuni.edu.pk, SE, Teaching Fellow, 4, Testing; Agile Delivery
+Usman Tariq, usman.tariq@airuni.edu.pk, MA, Assistant Professor, 5, Programming
+TBD, bad-email, XR, , ,`
+
+function importStatus(row: ImportPreviewRow): { label: string; variant: 'success' | 'warning' | 'danger' } {
+  if (row.duplicate) return { label: 'Duplicate', variant: 'warning' }
+  if (row.errors.length > 0) return { label: 'Invalid', variant: 'danger' }
+  return { label: 'Valid', variant: 'success' }
+}
 
 function BulkImportModal({
   open,
-  roster,
   onClose,
-  onImport,
 }: {
   open: boolean
-  roster: MockInvigilator[]
   onClose: () => void
-  onImport: (rows: ImportRow[]) => void
 }) {
   const [stage, setStage] = useState<'upload' | 'review'>('upload')
   const [text, setText] = useState('')
-  const [rows, setRows] = useState<ImportRow[]>([])
-  const [importing, setImporting] = useState(false)
+  const [rows, setRows] = useState<ImportPreviewRow[]>([])
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setStage('upload')
     setText('')
     setRows([])
-    setImporting(false)
+    setBusy(false)
   }, [open])
 
   const handleFile = (file: File | null) => {
@@ -610,9 +483,50 @@ function BulkImportModal({
     reader.readAsText(file)
   }
 
-  const preview = () => {
-    setRows(parseImportText(text, roster))
-    setStage('review')
+  const preview = async () => {
+    setBusy(true)
+    try {
+      const result = await previewBulkImport(text)
+      setRows(result.rows)
+      setStage('review')
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Could not preview import',
+        description: err instanceof Error ? err.message : 'Unexpected error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const commit = async () => {
+    const accepted = rows.filter((r) => r.errors.length === 0 && !r.duplicate)
+    if (accepted.length === 0) return
+    setBusy(true)
+    try {
+      const result: BulkImportResult = await commitBulkImport(text)
+      await useInvigilatorsStore.getState().refresh()
+      toast({
+        variant: 'success',
+        title: 'Import complete',
+        description:
+          `${result.imported} invigilator${result.imported === 1 ? '' : 's'} added` +
+          (result.skippedDuplicates > 0 ? ` · ${result.skippedDuplicates} duplicate skipped` : '') +
+          (result.failed > 0 ? ` · ${result.failed} failed` : '') +
+          '. New names are now searchable in the Scheduling Engine.',
+        duration: 8000,
+      })
+      onClose()
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Import failed',
+        description: err instanceof Error ? err.message : 'Unexpected error',
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const counts = useMemo(() => {
@@ -622,18 +536,7 @@ function BulkImportModal({
     return { valid, duplicates, invalid }
   }, [rows])
 
-  const commit = () => {
-    const accepted = rows.filter((r) => r.errors.length === 0 && !r.duplicate)
-    if (accepted.length === 0) return
-    setImporting(true)
-    const delay = new Promise((resolve) => setTimeout(resolve, 900))
-    void delay.then(() => {
-      onImport(accepted)
-      setImporting(false)
-    })
-  }
-
-  const columns: Column<ImportRow>[] = [
+  const columns: Column<ImportPreviewRow>[] = [
     {
       key: 'name',
       header: 'Name',
@@ -655,7 +558,11 @@ function BulkImportModal({
       header: 'Specializations',
       className: 'max-w-56',
       render: (row) =>
-        row.tags.length > 0 ? <p className="truncate text-xs text-ink-muted">{row.tags.join(', ')}</p> : <span className="text-xs text-ink-muted">—</span>,
+        row.specialization_tags.length > 0 ? (
+          <p className="truncate text-xs text-ink-muted">{row.specialization_tags.join(', ')}</p>
+        ) : (
+          <span className="text-xs text-ink-muted">—</span>
+        ),
     },
     {
       key: 'status',
@@ -682,24 +589,24 @@ function BulkImportModal({
       onClose={onClose}
       size="lg"
       title="Bulk import invigilators"
-      description="Upload or paste a CSV roster, review the preview, then commit valid rows to the directory."
+      description="Upload or paste a CSV roster, review the server-side preview, then commit valid rows to the directory."
       footer={
         stage === 'upload' ? (
           <>
             <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={preview} disabled={!text.trim()}>
+            <Button variant="primary" onClick={preview} disabled={!text.trim() || busy} loading={busy}>
               <FileUp className="h-4 w-4" aria-hidden="true" /> Preview import
             </Button>
           </>
         ) : (
           <>
-            <Button variant="secondary" onClick={() => setStage('upload')} disabled={importing}>
+            <Button variant="secondary" onClick={() => setStage('upload')} disabled={busy}>
               Back
             </Button>
-            <Button variant="primary" onClick={commit} disabled={counts.valid === 0 || importing} loading={importing}>
-              {importing ? 'Importing…' : `Import ${counts.valid} invigilator${counts.valid === 1 ? '' : 's'}`}
+            <Button variant="primary" onClick={commit} disabled={counts.valid === 0 || busy} loading={busy}>
+              {busy ? 'Importing…' : `Import ${counts.valid} invigilator${counts.valid === 1 ? '' : 's'}`}
             </Button>
           </>
         )
@@ -742,7 +649,7 @@ function BulkImportModal({
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={7}
-            placeholder={'Ayesha Khan, ayesha.khan@airuni.edu.pk, CS, Lecturer, 5, Programming; Databases\nBilal Ahmed, bilal.ahmed@airuni.edu.pk, d-se, Teaching Fellow, 4, Testing'}
+            placeholder={'Ayesha Khan, ayesha.khan@airuni.edu.pk, CS, Lecturer, 5, Programming; Databases\nBilal Ahmed, bilal.ahmed@airuni.edu.pk, SE, Teaching Fellow, 4, Testing'}
             className="w-full resize-y rounded-md border border-line bg-card px-3 py-2 font-mono text-xs leading-5 text-ink outline-none transition-all duration-150 placeholder:text-ink-muted/70 hover:border-navy-muted/60 focus:border-navy focus:ring-2 focus:ring-navy/15"
           />
         </div>
@@ -762,10 +669,10 @@ function BulkImportModal({
               No valid rows — nothing will be imported. Go back and fix the highlighted entries.
             </div>
           )}
-          <DataTable<ImportRow>
+          <DataTable<ImportPreviewRow>
             columns={columns}
             data={rows}
-            getRowKey={(row) => row.key}
+            getRowKey={(row) => String(row.line)}
             pageSize={8}
             emptyTitle="No rows to preview"
           />
@@ -778,41 +685,32 @@ function BulkImportModal({
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export function InvigilatorsPage() {
-  const [additions, setAdditions] = useState<MockInvigilator[]>(() => readStorage<MockInvigilator[]>(ADDITIONS_KEY, []))
-  const [overrides, setOverrides] = useState<Record<string, Partial<MockInvigilator>>>(() =>
-    readStorage<Record<string, Partial<MockInvigilator>>>(OVERRIDES_KEY, {}),
-  )
+  const { invigilators: roster, loading, error, fetchAll } = useInvigilatorsStore()
+  const [departments, setDepartments] = useState<ApiDepartment[]>([])
+  const [loadError, setLoadError] = useState('')
 
   const [query, setQuery] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [availFilter, setAvailFilter] = useState<AvailabilityFilter>('all')
   const [tagFilter, setTagFilter] = useState('')
 
-  const [selected, setSelected] = useState<MockInvigilator | null>(null)
+  const [selected, setSelected] = useState<DirectoryInvigilator | null>(null)
   const [addOpen, setAddOpen] = useState(false)
-  const [editing, setEditing] = useState<MockInvigilator | null>(null)
+  const [editing, setEditing] = useState<DirectoryInvigilator | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     try {
-      localStorage.setItem(ADDITIONS_KEY, JSON.stringify(additions))
-    } catch {
-      /* ignore */
+      const [cat] = await Promise.all([fetchCatalog(), fetchAll()])
+      setDepartments(cat.departments ?? [])
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load the invigilator directory')
     }
-  }, [additions])
+  }, [fetchAll])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides))
-    } catch {
-      /* ignore */
-    }
-  }, [overrides])
-
-  const roster = useMemo<MockInvigilator[]>(() => {
-    const merged = [...baseInvigilators, ...additions]
-    return merged.map((inv) => (overrides[inv.id] ? { ...inv, ...overrides[inv.id] } : inv))
-  }, [additions, overrides])
+    void load()
+  }, [load])
 
   const allTags = useMemo(
     () => Array.from(new Set(roster.flatMap((i) => i.specialization_tags))).sort(),
@@ -855,83 +753,40 @@ export function InvigilatorsPage() {
     return { total: roster.length, available, busy, onLeave, assigned, max, loadPct: max > 0 ? Math.round((assigned / max) * 100) : 0 }
   }, [roster])
 
-  const saveForm = (values: FormValues, editingId: string | null) => {
+  const saveForm = async (values: FormValues, editingId: string | null) => {
     const max = Number.parseInt(values.max, 10)
     const tags = values.specialization_tags
       .split(/[;,]/)
       .map((t) => t.trim())
       .filter(Boolean)
-    const dept = departments.find((d) => d.id === values.department_id)
-    const patch: Partial<MockInvigilator> = {
+    const input = {
       name: values.name.trim(),
       email: values.email.trim().toLowerCase(),
-      phone: values.phone.trim(),
       department_id: values.department_id,
-      department_name: dept?.name ?? '',
-      designation: values.designation,
-      availability: values.availability,
       max_assignments_per_cycle: Number.isNaN(max) ? 5 : max,
       specialization_tags: tags,
     }
 
     if (editingId) {
-      setOverrides((prev) => ({ ...prev, [editingId]: patch }))
-      setSelected((prev) => (prev?.id === editingId ? { ...prev, ...patch } : prev))
+      const updated = await updateInvigilator(editingId, input)
+      await fetchAll()
+      setSelected((prev) => (prev?.id === editingId ? updated : prev))
       toast({
         variant: 'success',
         title: 'Invigilator updated',
-        description: `${patch.name}'s directory record has been saved.`,
+        description: `${updated.name}'s directory record has been saved.`,
       })
     } else {
-      const inv: MockInvigilator = {
-        id: `inv-x-${Date.now()}`,
-        name: patch.name ?? '',
-        department_id: patch.department_id ?? '',
-        department_name: patch.department_name ?? '',
-        availability: patch.availability ?? 'Available',
-        assigned_count: 0,
-        max_assignments_per_cycle: patch.max_assignments_per_cycle ?? 5,
-        designation: patch.designation ?? 'Lecturer',
-        email: patch.email ?? '',
-        phone: patch.phone ?? '',
-        specialization_tags: tags,
-        assignment_history: [],
-      }
-      setAdditions((prev) => [...prev, inv])
+      const created = await createInvigilator(input)
+      await fetchAll()
       toast({
         variant: 'success',
         title: 'Invigilator added',
-        description: `${inv.name} joined the directory with ${tags.length} specialization${tags.length === 1 ? '' : 's'}.`,
+        description: `${created.name} joined the directory with ${created.specialization_tags.length} specialization${created.specialization_tags.length === 1 ? '' : 's'}.`,
       })
     }
     setAddOpen(false)
     setEditing(null)
-  }
-
-  const importRows = (rows: ImportRow[]) => {
-    const imported: MockInvigilator[] = rows.map((row, k) => ({
-      id: `inv-x-${Date.now()}-${k}`,
-      name: row.name,
-      department_id: row.department_id,
-      department_name: row.department_name,
-      availability: 'Available',
-      assigned_count: 0,
-      max_assignments_per_cycle: Number.parseInt(row.max_raw, 10) || 5,
-      designation: row.designation,
-      email: row.email.toLowerCase(),
-      phone: '—',
-      specialization_tags: row.tags,
-      assignment_history: [],
-    }))
-    setAdditions((prev) => [...prev, ...imported])
-    const skipped = rows.length - imported.length
-    toast({
-      variant: 'success',
-      title: 'Import complete',
-      description:
-        `${imported.length} invigilator${imported.length === 1 ? '' : 's'} added${skipped > 0 ? ` · ${skipped} skipped` : ''}.`,
-    })
-    setImportOpen(false)
   }
 
   const statTiles: Array<{ label: string; value: string; tone: string; sub: string }> = [
@@ -942,7 +797,7 @@ export function InvigilatorsPage() {
     { label: 'Cycle load', value: `${summary.loadPct}%`, tone: 'text-navy', sub: `${summary.assigned} / ${summary.max} duties filled` },
   ]
 
-  const columns: Column<MockInvigilator>[] = [
+  const columns: Column<DirectoryInvigilator>[] = [
     {
       key: 'name',
       header: 'Invigilator',
@@ -1071,6 +926,21 @@ export function InvigilatorsPage() {
     ...allTags.map((t) => ({ value: t, label: t })),
   ]
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-6xl">
+        <div className="rounded-lg border border-danger/30 bg-danger-light p-6 text-center">
+          <AlertTriangle className="mx-auto h-8 w-8 text-danger" aria-hidden="true" />
+          <p className="mt-3 font-bold text-ink">Could not load the invigilator directory</p>
+          <p className="mt-1 text-sm text-ink-muted">{loadError || error}</p>
+          <Button variant="secondary" size="sm" className="mt-4" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1152,20 +1022,26 @@ export function InvigilatorsPage() {
       </div>
 
       <div className="mt-4">
-        <DataTable<MockInvigilator>
-          columns={columns}
-          data={filtered}
-          getRowKey={(row) => row.id}
-          pageSize={8}
-          emptyTitle="No invigilators match"
-          emptyDescription="Adjust the search or filters, or add a new invigilator to the directory."
-        />
+        {loading && roster.length === 0 ? (
+          <div className="rounded-lg border border-line bg-card p-10 text-center text-sm font-semibold text-ink-muted">
+            Loading the invigilator roster…
+          </div>
+        ) : (
+          <DataTable<DirectoryInvigilator>
+            columns={columns}
+            data={filtered}
+            getRowKey={(row) => row.id}
+            pageSize={8}
+            emptyTitle="No invigilators match"
+            emptyDescription="Adjust the search or filters, or add a new invigilator to the directory."
+          />
+        )}
       </div>
 
       <p className="mt-6 flex items-center gap-1.5 text-xs text-ink-muted">
         <Users className="h-3.5 w-3.5" aria-hidden="true" />
-        Directory is mock data for this step, shaped exactly like the Step 2 invigilator schema — the same
-        record the Scheduling Engine will query when it assigns duty.
+        Directory reads from the real Invigilator Directory API — the same roster the Scheduling Engine
+        queries when it assigns duty, so counts and availability stay in sync.
       </p>
 
       <ProfileDrawer
@@ -1190,11 +1066,12 @@ export function InvigilatorsPage() {
         open={addOpen}
         editing={editing}
         roster={roster}
+        departments={departments}
         onClose={() => { setAddOpen(false); setEditing(null) }}
         onSave={saveForm}
       />
 
-      <BulkImportModal open={importOpen} roster={roster} onClose={() => setImportOpen(false)} onImport={importRows} />
+      <BulkImportModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
 }

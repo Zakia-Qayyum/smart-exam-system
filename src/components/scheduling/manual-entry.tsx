@@ -22,12 +22,14 @@ import {
 } from '@/services/scheduling-service'
 import { formatDateLabel } from '@/config/scheduling-data'
 import { notifyScheduleChanged } from '@/lib/schedule-sync'
+import { useInvigilatorsStore } from '@/stores/invigilators-store'
 import { cn } from '@/lib/utils'
 import type {
   ApiClashCheckResult,
   ApiClashHit,
   ApiScheduleEntry,
   ApiTimeSlot,
+  DirectoryInvigilator,
   SchedulingCatalog,
 } from '@/lib/types'
 
@@ -73,8 +75,11 @@ export function ManualEntry() {
   const [date, setDate] = useState('')
   const [slotId, setSlotId] = useState('')
   const [roomId, setRoomId] = useState('')
+  const [invigilatorId, setInvigilatorId] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const invigilatorRoster = useInvigilatorsStore((s) => s.invigilators)
 
   const [clashResult, setClashResult] = useState<ApiClashCheckResult | null>(null)
   const [checking, setChecking] = useState(false)
@@ -86,6 +91,7 @@ export function ManualEntry() {
 
   useEffect(() => {
     let cancelled = false
+    void useInvigilatorsStore.getState().fetchAll()
     Promise.all([fetchCatalog(), fetchScheduleEntries({ page_size: 200 })])
       .then(([cat, list]) => {
         if (cancelled) return
@@ -129,6 +135,7 @@ export function ManualEntry() {
       setDate(entry.date)
       setSlotId(entry.time_slot_id)
       setRoomId(entry.room_id)
+      setInvigilatorId(entry.invigilators[0]?.id ?? '')
       clearDeepLink()
     } else if (sectionParam) {
       const section = catalog.sections.find((s) => s.id === sectionParam)
@@ -200,6 +207,10 @@ export function ManualEntry() {
     () => entries.filter((e) => e.date === date && e.room_id === roomId),
     [entries, date, roomId],
   )
+  const invigilator = useMemo<DirectoryInvigilator | null>(
+    () => invigilatorRoster.find((i) => i.id === invigilatorId) ?? null,
+    [invigilatorRoster, invigilatorId],
+  )
 
   const blocking = Boolean(clashResult && clashResult.clashes.length > 0)
   const dayWarn = Boolean(clashResult && clashResult.dayLoadWarnings.length > 0) || roomLoad.length > 0
@@ -226,9 +237,17 @@ export function ManualEntry() {
     () => (catalog?.rooms ?? []).map((r) => ({ value: r.id, label: `${r.name} · Cap ${r.capacity}` })),
     [catalog],
   )
+  const invigilatorOptions = useMemo(
+    () =>
+      invigilatorRoster.map((i) => ({
+        value: i.id,
+        label: `${i.name} · ${i.department_name} · ${i.availability} (${i.assigned_count}/${i.max_assignments_per_cycle})`,
+      })),
+    [invigilatorRoster],
+  )
 
   const canSave =
-    Boolean(departmentId && courseId && sectionId && date && slotId && roomId) &&
+    Boolean(departmentId && courseId && sectionId && date && slotId && roomId && invigilatorId) &&
     (!blocking || overrideReason.trim().length > 0) &&
     cycle?.status === 'draft' &&
     !saving
@@ -240,12 +259,13 @@ export function ManualEntry() {
     setDate('')
     setSlotId('')
     setRoomId('')
+    setInvigilatorId('')
     setOverrideReason('')
     setClashResult(null)
   }
 
   const handleSave = async () => {
-    if (!section || !slot || !room) return
+    if (!section || !slot || !room || !invigilator) return
     const force = Boolean(blocking && overrideReason.trim())
     setSaving(true)
     try {
@@ -254,6 +274,7 @@ export function ManualEntry() {
         date,
         time_slot_id: slot.id,
         room_id: room.id,
+        invigilator_id: invigilatorId,
         ...(force ? { force: true, override_reason: overrideReason.trim() } : {}),
       }
       const result = editing ? await updateEntry(editing.id, input) : await createEntry(input)
@@ -261,6 +282,7 @@ export function ManualEntry() {
         editing ? list.map((e) => (e.id === editing.id ? result.entry : e)) : [result.entry, ...list],
       )
       notifyScheduleChanged()
+      void useInvigilatorsStore.getState().refresh()
       toast({
         variant: 'success',
         title: result.overridden
@@ -510,6 +532,59 @@ export function ManualEntry() {
               </div>
             </div>
           </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div>
+              <Select
+                label="Invigilator"
+                options={invigilatorOptions}
+                value={invigilatorId}
+                onChange={setInvigilatorId}
+                placeholder="Search name or department…"
+                clearable
+              />
+              {invigilatorRoster.length === 0 && (
+                <p className="mt-1.5 text-xs text-ink-muted">Loading invigilator roster…</p>
+              )}
+              {invigilator && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Badge variant="info" dot>{invigilator.department_name}</Badge>
+                  <Badge
+                    variant={
+                      invigilator.availability === 'Available'
+                        ? 'success'
+                        : invigilator.availability === 'Busy'
+                          ? 'warning'
+                          : 'default'
+                    }
+                    dot
+                  >
+                    {invigilator.availability}
+                  </Badge>
+                  <Badge variant="outline">
+                    {invigilator.assigned_count}/{invigilator.max_assignments_per_cycle} assigned
+                  </Badge>
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-1.5 text-sm font-medium text-ink">Assignment recap</p>
+              {invigilator ? (
+                <div className="rounded-md border border-line bg-surface/60 p-3 text-sm text-ink">
+                  <p className="font-semibold">{invigilator.name} will invigilate this exam.</p>
+                  <p className="mt-0.5 text-xs text-ink-muted">
+                    {invigilator.designation} · {invigilator.email} — saving assigns them to this entry
+                    and updates their duty count in the Directory.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  Pick an invigilator from the directory — assignments update their duty count in the
+                  Invigilator Directory.
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -599,7 +674,7 @@ export function ManualEntry() {
         <Button
           variant="secondary"
           onClick={resetForm}
-          disabled={!courseId && !sectionId && !date && !slotId && !roomId}
+          disabled={!courseId && !sectionId && !date && !slotId && !roomId && !invigilatorId}
         >
           Clear
         </Button>
@@ -619,8 +694,8 @@ export function ManualEntry() {
         onConfirm={handleSave}
         title={editing ? 'Save these changes?' : 'Save this schedule entry?'}
         description={
-          course && section && slot && room
-            ? `${course.course_code} · Batch ${section.batch} · ${formatDateLabel(date)} · ${slot.label} · ${room.name}${
+          course && section && slot && room && invigilator
+            ? `${course.course_code} · Batch ${section.batch} · ${formatDateLabel(date)} · ${slot.label} · ${room.name} · ${invigilator.name}${
                 blocking && overrideReason.trim()
                   ? `\nOverride reason: “${overrideReason.trim()}”`
                   : ''
