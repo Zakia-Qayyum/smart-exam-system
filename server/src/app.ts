@@ -11,6 +11,7 @@ import { clashesRouter } from './routes/clashes.js'
 import { catalogRouter } from './routes/catalog.js'
 import { cyclesRouter } from './routes/cycles.js'
 import { invigilatorsRouter } from './routes/invigilators.js'
+import { invigilatorAssignmentsRouter } from './routes/invigilator-assignments.js'
 import { HttpError } from './lib/http-error.js'
 
 export function createApp() {
@@ -42,6 +43,7 @@ export function createApp() {
   app.use('/api/catalog', catalogRouter)
   app.use('/api/cycles', cyclesRouter)
   app.use('/api/invigilators', invigilatorsRouter)
+  app.use('/api/invigilator-assignments', invigilatorAssignmentsRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })

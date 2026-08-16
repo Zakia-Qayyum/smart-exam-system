@@ -4,6 +4,7 @@ import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
 import { schedulingService } from '../services/scheduling.service.js'
 import { clashService } from '../services/clash-detection.service.js'
+import { listUnassignedMatrix } from '../services/invigilator-assignments.service.js'
 import { resolveExamCycle } from '../lib/schedule-utils.js'
 
 export const schedulingRouter = Router()
@@ -138,6 +139,20 @@ schedulingRouter.get(
   async (req, res) => {
     const cycle = typeof req.query.cycle === 'string' && req.query.cycle ? req.query.cycle : undefined
     res.json(await schedulingService.calendarSummary(cycle))
+  },
+)
+
+// ── GET /schedule-entries/:examCycleId/unassigned ──────────────────────────
+// Slot × room matrix for the invigilator assignment board (Step 19). Returns
+// every cell of the cycle — real exam sessions plus open sessions — with the
+// invigilators already assigned, the target count, and whether a seat is
+// still unfilled. Pass ?date=YYYY-MM-DD to narrow to a single day.
+schedulingRouter.get(
+  '/schedule-entries/:examCycleId/unassigned',
+  requireRole(...READ_ROLES),
+  async (req, res) => {
+    const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : undefined
+    res.json(await listUnassignedMatrix(String(req.params.examCycleId), date))
   },
 )
 
