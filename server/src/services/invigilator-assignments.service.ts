@@ -17,6 +17,7 @@
 import { prisma } from '../lib/prisma.js'
 import { HttpError } from '../lib/http-error.js'
 import { dateKey, enumerateDays, resolveExamCycle } from '../lib/schedule-utils.js'
+import { notificationsWriteService } from './notifications.service.js'
 
 export type AssignmentStatus = 'assigned' | 'confirmed' | 'declined'
 
@@ -191,15 +192,16 @@ const dutyLine = (ctx: AssignmentContext['entry']) =>
   `${ctx.section.course.course_code} · ${dateKey(ctx.date)} · ${ctx.time_slot.label} · ${ctx.room.name}`
 
 async function notifyDuty(tx: Pick<typeof prisma, 'notification'>, userId: string, kind: 'assigned' | 'removed', ctx: AssignmentContext['entry']) {
-  await tx.notification.create({
-    data: {
-      user_id: userId,
+  await notificationsWriteService.notifyUser(
+    userId,
+    {
       type: 'assignment',
       title: kind === 'assigned' ? 'Invigilation duty assigned' : 'Invigilation duty removed',
       body: kind === 'assigned' ? `You have been assigned to ${dutyLine(ctx)}.` : `You were removed from ${dutyLine(ctx)}.`,
       link: '/my-assignments',
     },
-  })
+    { client: tx },
+  )
 }
 
 function toApiAssignment(a: {

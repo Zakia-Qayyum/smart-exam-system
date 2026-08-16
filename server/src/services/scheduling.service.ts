@@ -11,6 +11,7 @@ import { HttpError } from '../lib/http-error.js'
 import { dateFromKey, dateKey, enumerateDays, resolveExamCycle } from '../lib/schedule-utils.js'
 import type { ClashHit } from '../lib/clash-detection.js'
 import { clashService } from './clash-detection.service.js'
+import { notificationsWriteService, type NotificationClient } from './notifications.service.js'
 import { buildDraftSchedule, type DraftAssignment, type DraftRoom, type DraftSectionInput, type DraftTimeSlot } from './schedule-engine.service.js'
 
 export interface EntryInput {
@@ -237,10 +238,31 @@ async function validateEntry(input: EntryInput, existingId?: string) {
 
 // ── Create / update / delete ───────────────────────────────────────────────
 
+async function notifyCreatedClashes(tx: NotificationClient, cycleName: string, departmentId: string | undefined, count: number) {
+  const notice = {
+    type: 'clash' as const,
+    title: 'New clashes detected',
+    body: `${count} new clash${count === 1 ? '' : 'es'} found in ${cycleName}. Review and resolve them.`,
+    link: '/clashes',
+  }
+  await notificationsWriteService.notifyRole('coordinator', notice, { client: tx })
+  if (departmentId) {
+    await notificationsWriteService.notifyRole('dept-coordinator', notice, { departmentScope: departmentId, client: tx })
+  }
+}
+
 async function saveEntry(input: EntryInput, options: SaveOptions): Promise<ScheduleSaveResult> {
   const { cycle, room, invigilatorId } = await validateEntry(input, options.existingId)
   assertEditable(cycle)
   const invigilatorProvided = typeof input.invigilator_id === 'string'
+
+  // Department whose dept-coordinator should be looped in when this save
+  // produces fresh (non-forced) clash rows.
+  const sectionWithCourse = await prisma.section.findUnique({
+    where: { id: input.section_id },
+    include: { course: { select: { department_id: true } } },
+  })
+  const clashDepartmentId = sectionWithCourse?.course.department_id
 
   if (options.existingId) {
     const existing = await prisma.scheduleEntry.findUnique({ where: { id: options.existingId } })
@@ -312,6 +334,9 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
       }
       const clashRows = makeClashRows(entryId)
       if (clashRows.length) await tx.clashRecord.createMany({ data: clashRows })
+      if (!force && clashRows.length) {
+        await notifyCreatedClashes(tx, cycle.name, clashDepartmentId, clashRows.length)
+      }
       if (force) {
         await tx.overrideRequest.create({
           data: {
@@ -346,6 +371,9 @@ async function saveEntry(input: EntryInput, options: SaveOptions): Promise<Sched
       }
       const clashRows = makeClashRows(entryId)
       if (clashRows.length) await tx.clashRecord.createMany({ data: clashRows })
+      if (!force && clashRows.length) {
+        await notifyCreatedClashes(tx, cycle.name, clashDepartmentId, clashRows.length)
+      }
       if (force) {
         await tx.overrideRequest.create({
           data: {

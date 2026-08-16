@@ -14,6 +14,7 @@
 import { prisma } from '../lib/prisma.js'
 import { HttpError } from '../lib/http-error.js'
 import { dateKey, resolveExamCycle } from '../lib/schedule-utils.js'
+import { notificationsWriteService } from './notifications.service.js'
 import {
   detectSameDayOverload as detectSameDayOverloadPure,
   findClashesForCandidate,
@@ -311,6 +312,24 @@ async function scanFullCycle(examCycleId?: string, performedBy?: string): Promis
       await tx.clashRecord.createMany({
         data: toCreate.map((row) => ({ ...row, status: 'open' as const })),
       })
+
+      // Fan out to the exam coordinator and the dept-coordinators whose
+      // sections are implicated in the freshly detected clashes.
+      const affectedEntryIds = [...new Set(toCreate.flatMap((row) => row.schedule_entry_ids))]
+      const affectedSections = await tx.scheduleEntry.findMany({
+        where: { id: { in: affectedEntryIds } },
+        select: { section: { select: { course: { select: { department_id: true } } } } },
+      })
+      const clashNotice = {
+        type: 'clash' as const,
+        title: 'New clashes detected',
+        body: `${toCreate.length} new clash${toCreate.length === 1 ? '' : 'es'} found in ${cycle.name}. Review and resolve them.`,
+        link: '/clashes',
+      }
+      await notificationsWriteService.notifyRole('coordinator', clashNotice, { client: tx })
+      for (const departmentId of new Set(affectedSections.map((s) => s.section.course.department_id))) {
+        await notificationsWriteService.notifyRole('dept-coordinator', clashNotice, { departmentScope: departmentId, client: tx })
+      }
     }
     if (toResolve.length) {
       await tx.clashRecord.updateMany({

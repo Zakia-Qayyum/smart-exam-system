@@ -15,6 +15,7 @@ import { invigilatorAssignmentsRouter } from './routes/invigilator-assignments.j
 import { adminRouter } from './routes/admin.js'
 import { overrideRequestsRouter } from './routes/override-requests.js'
 import { auditLogRouter } from './routes/audit-log.js'
+import { notificationsRouter } from './routes/notifications.js'
 import { HttpError } from './lib/http-error.js'
 
 export function createApp() {
@@ -50,6 +51,7 @@ export function createApp() {
   app.use('/api', adminRouter)
   app.use('/api/override-requests', overrideRequestsRouter)
   app.use('/api/audit-log', auditLogRouter)
+  app.use('/api/notifications', notificationsRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })

@@ -13,6 +13,7 @@
 import { prisma } from '../lib/prisma.js'
 import { HttpError } from '../lib/http-error.js'
 import { dateFromKey, dateKey } from '../lib/schedule-utils.js'
+import { notificationsWriteService } from './notifications.service.js'
 
 export type CycleStatus = 'draft' | 'published' | 'archived'
 
@@ -249,15 +250,16 @@ export async function publishCycle(id: string, performedBy: string): Promise<Api
       for (const a of entry.invigilator_assignments) recipientIds.add(a.invigilator.user_id)
     }
     if (recipientIds.size > 0) {
-      await tx.notification.createMany({
-        data: [...recipientIds].map((user_id) => ({
-          user_id,
+      await notificationsWriteService.notifyUsers(
+        [...recipientIds],
+        {
           type: 'published',
           title: 'Datesheet published',
           body: `The ${current.name} datesheet is now live. View it on the Datesheet Calendar.`,
           link: '/calendar',
-        })),
-      })
+        },
+        { client: tx },
+      )
     }
 
     await tx.auditLog.create({

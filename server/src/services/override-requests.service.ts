@@ -14,6 +14,7 @@
 import { prisma } from '../lib/prisma.js'
 import { HttpError } from '../lib/http-error.js'
 import { dateKey } from '../lib/schedule-utils.js'
+import { notificationsWriteService } from './notifications.service.js'
 
 export type OverrideStatus = 'pending' | 'approved' | 'rejected'
 export type OverrideTargetType = 'schedule_entry' | 'clash_record'
@@ -208,21 +209,14 @@ export async function raiseOverrideRequest(input: RaiseOverrideInput, raisedBy: 
       },
     })
     // Notify every active admin + HOD that there is a new request to review.
-    const approvers = await tx.user.findMany({
-      where: { status: 'active', role: { in: ['admin', 'hod'] } },
-      select: { id: true },
-    })
-    if (approvers.length > 0) {
-      await tx.notification.createMany({
-        data: approvers.map((u) => ({
-          user_id: u.id,
-          type: 'approval',
-          title: 'New override request',
-          body: `${created.raiser.name} raised: ${reason}`,
-          link: '/approvals',
-        })),
-      })
+    const notice = {
+      type: 'approval' as const,
+      title: 'New override request',
+      body: `${created.raiser.name} raised: ${reason}`,
+      link: '/approvals',
     }
+    await notificationsWriteService.notifyRole('admin', notice, { client: tx })
+    await notificationsWriteService.notifyRole('hod', notice, { client: tx })
     return created
   })
 
@@ -326,15 +320,16 @@ export async function approveOverrideRequest(id: string, options: { performedBy:
       },
     })
 
-    await tx.notification.create({
-      data: {
-        user_id: request.raised_by,
+    await notificationsWriteService.notifyUser(
+      request.raised_by,
+      {
         type: 'approval',
         title: 'Override request approved',
         body: `Your override request for ${request.target_type === 'clash_record' ? 'a clash record' : 'a schedule entry'} was approved.`,
         link: '/approvals',
       },
-    })
+      { client: tx },
+    )
 
     return request
   })
@@ -367,15 +362,16 @@ export async function rejectOverrideRequest(id: string, options: { performedBy: 
       },
     })
 
-    await tx.notification.create({
-      data: {
-        user_id: request.raised_by,
+    await notificationsWriteService.notifyUser(
+      request.raised_by,
+      {
         type: 'approval',
         title: 'Override request rejected',
         body: `Your override request was rejected — ${remarks}`,
         link: '/approvals',
       },
-    })
+      { client: tx },
+    )
 
     return request
   })
