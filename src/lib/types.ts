@@ -26,6 +26,7 @@ export interface MockNotification {
   title: string
   body: string
   minutesAgo: number
+  createdAt: string
   read: boolean
   link: string
 }

@@ -37,59 +37,76 @@ export const demoAccounts: DemoAccount[] = [
   { email: 'au2024cs042@airuni.edu.pk', password: 'Password@123', role: 'student', requiresMfa: false, mustChangePassword: false, isLocked: false, label: 'Student (no MFA)' },
 ]
 
-const unread = (n: number): Pick<MockNotification, 'read' | 'minutesAgo'> => ({ read: false, minutesAgo: n })
-const read = (n: number): Pick<MockNotification, 'read' | 'minutesAgo'> => ({ read: true, minutesAgo: n })
+const minutesAgoToIso = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
+const unread = (n: number): Pick<MockNotification, 'read' | 'minutesAgo' | 'createdAt'> => ({
+  read: false,
+  minutesAgo: n,
+  createdAt: minutesAgoToIso(n),
+})
+const read = (n: number): Pick<MockNotification, 'read' | 'minutesAgo' | 'createdAt'> => ({
+  read: true,
+  minutesAgo: n,
+  createdAt: minutesAgoToIso(n),
+})
 
+/**
+ * Mock notification generator, scoped per role. Every row carries a real ISO
+ * timestamp (createdAt) so the Notifications screen can group by day
+ * (Today / Yesterday / Earlier); minutesAgo is kept for the header dropdown.
+ */
 export function mockNotifications(role: Role): MockNotification[] {
   switch (role) {
     case 'student':
       return [
-        { id: 's1', kind: 'published', title: 'Datesheet published', body: 'Fall-2026 final exams start 10 Aug 2026.', ...read(180), link: '/my-datesheet' },
+        { id: 's1', kind: 'clash', title: 'Venue changed', body: 'CS-202 moves to Hall B for the 11 Aug session.', ...unread(12), link: '/my-datesheet' },
         { id: 's2', kind: 'info', title: 'Roll no slip ready', body: 'Your roll no slip is available to download.', ...unread(45), link: '/my-datesheet' },
-        { id: 's3', kind: 'info', title: 'Exam venue changed', body: 'CS-202 moves to Hall B for the 11 Aug session.', ...unread(20), link: '/my-datesheet' },
-        { id: 's4', kind: 'info', title: 'Invigilator request', body: 'Room CS Lab 1 will now be supervised by faculty.', ...read(600), link: '/notifications' },
-        { id: 's5', kind: 'info', title: 'Welcome', body: 'Your student account is active for Fall-2026.', ...read(4320), link: '/notifications' },
+        { id: 's3', kind: 'published', title: 'Datesheet published', body: 'Fall-2026 final exams start 10 Aug 2026.', ...unread(90), link: '/my-datesheet' },
+        { id: 's4', kind: 'info', title: 'Invigilator request', body: 'Room CS Lab 1 will now be supervised by faculty.', ...read(1700), link: '/my-datesheet' },
+        { id: 's5', kind: 'info', title: 'Welcome', body: 'Your student account is active for Fall-2026.', ...read(3000), link: '/my-datesheet' },
       ]
     case 'invigilator':
       return [
         { id: 'i1', kind: 'assignment', title: 'New assignment', body: 'CS-201 (Data Structures) on 11 Aug, Morning slot, Hall A.', ...unread(12), link: '/my-assignments' },
         { id: 'i2', kind: 'assignment', title: 'Assignment confirmed', body: 'SE-101 on 10 Aug, Afternoon, Hall C.', ...unread(60), link: '/my-assignments' },
         { id: 'i3', kind: 'info', title: 'Availability window opens', body: 'Set your availability for the Aug 10\u201314 cycle.', ...unread(90), link: '/my-availability' },
-        { id: 'i4', kind: 'published', title: 'Briefing session', body: 'Invigilator briefing on 8 Aug at 14:00 in the Auditorium.', ...read(240), link: '/notifications' },
-        { id: 'i5', kind: 'info', title: 'Handbook updated', body: 'The 2026 invigilation handbook has been revised.', ...read(1440), link: '/notifications' },
+        { id: 'i4', kind: 'published', title: 'Briefing session', body: 'Invigilator briefing on 8 Aug at 14:00 in the Auditorium.', ...read(1500), link: '/my-availability' },
+        { id: 'i5', kind: 'assignment', title: 'Roster updated', body: 'Your 11 Aug duty slot was swapped to Hall C.', ...read(1700), link: '/my-assignments' },
+        { id: 'i6', kind: 'info', title: 'Handbook updated', body: 'The 2026 invigilation handbook has been revised.', ...read(2900), link: '/my-assignments' },
       ]
     case 'hod':
       return [
         { id: 'h1', kind: 'approval', title: 'Approval requested', body: 'Room change for CS-202 — awaiting your decision.', ...unread(8), link: '/approvals' },
         { id: 'h2', kind: 'clash', title: 'New clash flagged', body: 'One student has two exams on 11 Aug.', ...unread(35), link: '/approvals' },
-        { id: 'h3', kind: 'published', title: 'Datesheet draft ready', body: 'The Fall-2026 datesheet draft is ready for review.', ...read(200), link: '/calendar' },
-        { id: 'h4', kind: 'info', title: 'Report generated', body: 'Department load report for Fall-2026 is ready.', ...read(700), link: '/reports' },
-        { id: 'h5', kind: 'info', title: 'Semester reminders', body: 'Grade submissions open after the exam cycle.', ...read(2880), link: '/notifications' },
+        { id: 'h3', kind: 'approval', title: 'Override pending', body: 'MA-201 invigilator swap needs your approval.', ...unread(75), link: '/approvals' },
+        { id: 'h4', kind: 'published', title: 'Datesheet draft ready', body: 'The Fall-2026 datesheet draft is ready for review.', ...read(1500), link: '/calendar' },
+        { id: 'h5', kind: 'info', title: 'Report generated', body: 'Department load report for Fall-2026 is ready.', ...read(1700), link: '/reports' },
+        { id: 'h6', kind: 'clash', title: 'Clash resolved', body: 'CS-305 overlap resolved in the latest draft.', ...read(2900), link: '/clashes' },
       ]
     case 'dept-coordinator':
       return [
         { id: 'd1', kind: 'clash', title: 'Department clash', body: '2 sections in CS overlap in the Afternoon slot on 12 Aug.', ...unread(15), link: '/scheduling' },
         { id: 'd2', kind: 'published', title: 'Schedules generated', body: 'CS department timetable draft generated.', ...unread(70), link: '/calendar' },
-        { id: 'd3', kind: 'assignment', title: 'Invigilators needed', body: '3 CS exams still need an invigilator.', ...read(300), link: '/invigilators' },
-        { id: 'd4', kind: 'info', title: 'Room confirmed', body: 'CS Lab 1 confirmed for the 11 Aug session.', ...read(500), link: '/scheduling' },
-        { id: 'd5', kind: 'info', title: 'Cycle opens', body: 'The Fall-2026 cycle is now in draft.', ...read(1440), link: '/calendar' },
+        { id: 'd3', kind: 'assignment', title: 'Invigilators needed', body: '3 CS exams still need an invigilator.', ...read(1500), link: '/invigilators' },
+        { id: 'd4', kind: 'info', title: 'Room confirmed', body: 'CS Lab 1 confirmed for the 11 Aug session.', ...read(1700), link: '/scheduling' },
+        { id: 'd5', kind: 'info', title: 'Cycle opens', body: 'The Fall-2026 cycle is now in draft.', ...read(2900), link: '/calendar' },
       ]
     case 'exam-coordinator':
       return [
         { id: 'e1', kind: 'clash', title: '241 clashes detected', body: 'Same-slot and same-day conflicts found in the draft timetable.', ...unread(5), link: '/clashes' },
         { id: 'e2', kind: 'published', title: 'Timetable draft ready', body: 'Fall-2026 timetable generated with 32 sessions.', ...unread(25), link: '/calendar' },
         { id: 'e3', kind: 'assignment', title: '64 invigilator slots', body: 'Assignments drafted — 8 still pending confirmation.', ...unread(40), link: '/assignments' },
-        { id: 'e4', kind: 'info', title: 'Room utilization', body: '11 rooms booked; Auditorium free on 14 Aug.', ...read(120), link: '/scheduling' },
-        { id: 'e5', kind: 'info', title: 'Override request', body: 'Coordinator requested a room change for CS-202.', ...read(90), link: '/clashes' },
-        { id: 'e6', kind: 'info', title: 'Backup scheduled', body: 'Backup invigilators configured for the cycle.', ...read(300), link: '/assignments' },
+        { id: 'e4', kind: 'approval', title: 'Override request', body: 'Coordinator requested a room change for CS-202.', ...unread(90), link: '/approvals' },
+        { id: 'e5', kind: 'info', title: 'Room utilization', body: '11 rooms booked; Auditorium free on 14 Aug.', ...read(1500), link: '/scheduling' },
+        { id: 'e6', kind: 'info', title: 'Backup scheduled', body: 'Backup invigilators configured for the cycle.', ...read(2900), link: '/assignments' },
       ]
     case 'admin':
       return [
         { id: 'a1', kind: 'clash', title: 'Clash spike', body: 'Same-slot conflicts increased in the latest draft.', ...unread(6), link: '/clashes' },
-        { id: 'a2', kind: 'approval', title: 'User role change', body: 'Hira Khan granted dept-coordinator for CS.', ...unread(30), link: '/users' },
-        { id: 'a3', kind: 'info', title: 'Audit exported', body: 'A user exported the audit log to CSV.', ...read(200), link: '/audit-log' },
-        { id: 'a4', kind: 'published', title: 'Cycle published', body: 'Fall-2026 cycle status moved to draft by Exam Cell.', ...read(400), link: '/scheduling' },
-        { id: 'a5', kind: 'info', title: 'System health ok', body: 'API and database reported healthy.', ...read(1440), link: '/dashboard' },
+        { id: 'a2', kind: 'approval', title: 'User role change', body: 'Hira Khan granted dept-coordinator for CS.', ...unread(30), link: '/settings' },
+        { id: 'a3', kind: 'approval', title: 'Override approved', body: 'A clash override was approved for CS-202.', ...read(1500), link: '/approvals' },
+        { id: 'a4', kind: 'info', title: 'Audit exported', body: 'A user exported the audit log to CSV.', ...read(1700), link: '/settings' },
+        { id: 'a5', kind: 'published', title: 'Cycle published', body: 'Fall-2026 cycle status moved to draft by Exam Cell.', ...read(2900), link: '/calendar' },
+        { id: 'a6', kind: 'info', title: 'System health ok', body: 'API and database reported healthy.', ...read(4300), link: '/dashboard' },
       ]
   }
 }

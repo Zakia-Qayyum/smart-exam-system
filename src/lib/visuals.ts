@@ -20,10 +20,19 @@ export const kindIcon: Record<Kind, LucideIcon> = {
 
 export const kindTone: Record<Kind, string> = {
   clash: 'text-danger',
-  published: 'text-navy',
+  published: 'text-gold-dark',
   assignment: 'text-info',
-  approval: 'text-success',
+  approval: 'text-purple',
   info: 'text-ink-muted',
+}
+
+/** Icon bubble tints per kind — clash-red, assignment-blue, published-gold, approval-purple. */
+export const kindTint: Record<Kind, string> = {
+  clash: 'bg-danger-light text-danger',
+  published: 'bg-gold/15 text-gold-dark',
+  assignment: 'bg-info-light text-info',
+  approval: 'bg-purple-light text-purple',
+  info: 'bg-surface text-ink-muted',
 }
 
 export function timeAgo(minutes: number): string {

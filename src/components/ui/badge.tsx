@@ -12,6 +12,7 @@ export const badgeVariants = cva(
         danger: 'border-danger/25 bg-danger-light text-danger',
         warning: 'border-warning/40 bg-warning-light text-warning-deep',
         info: 'border-info/25 bg-info-light text-info',
+        purple: 'border-purple/25 bg-purple-light text-purple',
         published: 'border-navy/20 bg-navy text-white',
         gold: 'border-gold/40 bg-gold/15 text-gold-dark',
         outline: 'border-line bg-card text-ink',
