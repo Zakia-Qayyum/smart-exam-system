@@ -35,6 +35,26 @@ export const roleLabels: Record<Role, string> = {
   student: 'Student',
 }
 
+/** Map a backend DB role string onto the frontend Role union. */
+export function toFrontendRole(dbRole: string): Role | null {
+  const map: Record<string, Role> = {
+    admin: 'admin',
+    coordinator: 'exam-coordinator',
+    'dept-coordinator': 'dept-coordinator',
+    hod: 'hod',
+    faculty: 'invigilator',
+    invigilator: 'invigilator',
+    student: 'student',
+  }
+  return map[dbRole] ?? null
+}
+
+/** Human label for a backend DB role string (falls back to the raw string). */
+export function roleLabelFor(dbRole: string): string {
+  const role = toFrontendRole(dbRole)
+  return role ? roleLabels[role] : dbRole
+}
+
 export const roleDescriptions: Record<Role, string> = {
   admin: 'Full access to every module, user management and the audit log.',
   'exam-coordinator': 'Build timetables, detect clashes and run the whole exam cycle.',

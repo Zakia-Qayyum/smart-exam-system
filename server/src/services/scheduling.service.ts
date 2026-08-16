@@ -189,6 +189,7 @@ function assertEditable(cycle: { status: string }) {
 
 async function validateEntry(input: EntryInput, existingId?: string) {
   const cycle = await resolveExamCycle(input.exam_cycle_id)
+  assertEditable(cycle)
 
   const startKey = dateKey(cycle.start_date)
   const endKey = dateKey(cycle.end_date)

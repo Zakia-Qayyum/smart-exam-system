@@ -602,3 +602,139 @@ export interface AutoAssignCommitResult {
   assignments: ApiInvigilatorAssignment[]
   skipped_reasons: Array<{ schedule_entry_id: string; invigilator_id: string; reason: string }>
 }
+
+// ── Admin / Approvals (Step 22–23 APIs) ────────────────────────────────────
+
+export type ApiOverrideTargetType = 'schedule_entry' | 'clash_record'
+export type ApiOverrideStatus = 'pending' | 'approved' | 'rejected'
+
+export interface ApiOverrideRequest {
+  id: string
+  target_type: ApiOverrideTargetType
+  target_id: string
+  reason: string
+  status: ApiOverrideStatus
+  remarks: string | null
+  created_at: string
+  decided_at: string | null
+  raised_by: { id: string; name: string; email: string; role: string }
+  decided_by: { id: string; name: string } | null
+  target: {
+    schedule_entry?: {
+      id: string
+      course_code: string
+      course_title: string
+      date: string
+      time_slot_label: string
+      room_name: string
+      status: string
+    }
+    clash_record?: {
+      id: string
+      type: string
+      severity: string
+      status: string
+      student: { reg_id: string; name: string }
+      schedule_entry_ids: string[]
+    }
+  }
+}
+
+export interface ApiOverrideRequestList {
+  requests: ApiOverrideRequest[]
+  total: number
+  page: number
+  page_size: number
+  summary: { pending: number; approved: number; rejected: number }
+}
+
+export type PermissionKey =
+  | 'manage_schedule_entries'
+  | 'manage_invigilators'
+  | 'approve_overrides'
+  | 'view_reports'
+
+export type PermissionMap = Record<PermissionKey, boolean>
+
+export interface ApiPermissionMatrixAccount {
+  id: string
+  name: string
+  email: string
+  role: string
+  department_code: string | null
+  department_name: string | null
+  permissions: PermissionMap
+}
+
+export interface ApiDepartmentAdmin {
+  id: string
+  name: string
+  code: string
+  rooms_count: number
+  invigilators_count: number
+  courses_count: number
+}
+
+export interface ApiRoomAdmin {
+  id: string
+  name: string
+  capacity: number
+  department_id: string | null
+  department_code: string | null
+  department_name: string | null
+}
+
+export interface ApiTimeSlotAdmin {
+  id: string
+  label: string
+  start_time: string
+  end_time: string
+  exam_cycle_id: string
+}
+
+export type CycleStatus = 'draft' | 'published' | 'archived'
+
+export interface ApiExamCycleAdmin {
+  id: string
+  name: string
+  term: string
+  start_date: string
+  end_date: string
+  status: CycleStatus
+  created_at: string
+  entries_count: number
+  time_slots_count: number
+}
+
+export interface ApiAuditLogEntry {
+  id: string
+  action_type: string
+  target_type: string
+  target_id: string
+  performed_by: { id: string; name: string; email: string; role: string } | null
+  timestamp: string
+  meta: Record<string, unknown> | null
+}
+
+export interface ApiAuditLogList {
+  entries: ApiAuditLogEntry[]
+  total: number
+  page: number
+  page_size: number
+  summary: { actions: Array<{ action_type: string; count: number }> }
+}
+
+export type AdminUserStatus = 'active' | 'disabled' | 'force-password-change'
+
+export interface ApiAdminUser {
+  id: string
+  name: string
+  email: string
+  role: Role
+  department_code: string | null
+  department_name: string | null
+  status: 'active' | 'disabled'
+  mfa_enabled: boolean
+  must_change_password: boolean
+  last_login_at: string | null
+}

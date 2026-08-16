@@ -37,6 +37,11 @@ import {
 } from '../services/exam-cycles.service.js'
 import { PERMISSION_KEYS, effectivePermissions, type PermissionMap } from '../lib/permissions.js'
 import { toFrontendRole } from '../lib/roles.js'
+import {
+  listUsers,
+  resetUserPassword,
+  updateUserAccount,
+} from '../services/admin-users.service.js'
 
 export const adminRouter = Router()
 
@@ -82,6 +87,15 @@ const permissionsSchema = z.object({
     })
     .refine((v) => Object.keys(v).length > 0, { message: 'At least one permission is required' }),
 })
+
+const userAccountSchema = z
+  .object({
+    status: z.enum(['active', 'disabled']).optional(),
+    must_change_password: z.boolean().optional(),
+  })
+  .refine((v) => v.status !== undefined || v.must_change_password !== undefined, {
+    message: 'At least one field is required',
+  })
 
 function parsePage(value: unknown, max: number): number | undefined {
   if (typeof value !== 'string' || !value) return undefined
@@ -242,4 +256,19 @@ adminRouter.get('/permissions/matrix', requireRole(...WRITE_ROLES), async (_req,
       permissions: effectivePermissions(toFrontendRole(r.role) ?? r.role, r.permissions),
     })),
   })
+})
+
+// ── User account administration (Settings → Users & Roles) ──────────────────
+
+adminRouter.get('/users', requireRole('admin'), async (_req, res) => {
+  res.json({ users: await listUsers() })
+})
+
+adminRouter.patch('/users/:id', requireRole('admin'), validateBody(userAccountSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof userAccountSchema>
+  res.json({ user: await updateUserAccount(String(req.params.id), body, res.locals.user.id) })
+})
+
+adminRouter.post('/users/:id/reset-password', requireRole('admin'), async (req, res) => {
+  res.json(await resetUserPassword(String(req.params.id), res.locals.user.id))
 })

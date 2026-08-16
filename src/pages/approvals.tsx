@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Users, XCircle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Users, XCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,21 +12,79 @@ import { Tabs } from '@/components/ui/tabs'
 import { EmptyState } from '@/components/ui/empty-state'
 import { toast } from '@/components/ui/toast-store'
 import { DatesheetCalendar } from '@/components/calendar/datesheet-calendar'
-import { approvalKindMeta, mockApprovalQueue, type ApprovalRequest } from '@/config/approval-mock'
-import { useAuthStore } from '@/stores/auth-store'
+import { approvalKindMeta, type ApprovalKind, type ApprovalRequest } from '@/config/approval-mock'
+import { roleLabelFor } from '@/config/roles'
+import { formatDateLabel } from '@/config/scheduling-data'
+import { approveOverrideRequest, fetchOverrideRequests, rejectOverrideRequest } from '@/services/approvals-service'
+import type { ApiOverrideRequest } from '@/lib/types'
 import { timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
 
 type Decision = 'approve' | 'reject'
 
+function minutesSince(iso: string | null): number | null {
+  if (!iso) return null
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))
+}
+
+/** Map the backend override-request shape onto the queue card view-model. */
+function toApprovalRequest(r: ApiOverrideRequest): ApprovalRequest {
+  const entry = r.target.schedule_entry
+  const clash = r.target.clash_record
+  const kind: ApprovalKind = r.target_type === 'clash_record' ? 'clash-override' : 'invigilator-override'
+  return {
+    id: r.id,
+    kind,
+    title: entry
+      ? `${entry.course_code} · ${formatDateLabel(entry.date)} ${entry.time_slot_label}`
+      : clash
+        ? `Clash override for ${clash.student.reg_id}`
+        : 'Override request',
+    requester: r.raised_by.name,
+    requesterRole: roleLabelFor(r.raised_by.role),
+    department: '',
+    reason: r.reason,
+    courses: entry ? [entry.course_code] : [],
+    affectedStudents: clash ? 1 : null,
+    detail: entry
+      ? `${entry.course_code} · ${entry.course_title} · ${formatDateLabel(entry.date)} · ${entry.time_slot_label} · ${entry.room_name}`
+      : clash
+        ? `${clash.type} clash · ${clash.severity} severity · ${clash.student.name} (${clash.student.reg_id})`
+        : '',
+    minutesAgo: minutesSince(r.created_at) ?? 0,
+    status: r.status,
+    decidedBy: r.decided_by?.name,
+    decisionNote: r.remarks ?? undefined,
+    decidedMinutesAgo: minutesSince(r.decided_at) ?? undefined,
+  }
+}
+
 export function ApprovalQueuePage() {
-  const user = useAuthStore((s) => s.user)
-  const [requests, setRequests] = useState<ApprovalRequest[]>(() => mockApprovalQueue())
+  const [requests, setRequests] = useState<ApprovalRequest[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [pendingDialog, setPendingDialog] = useState<{ request: ApprovalRequest; decision: Decision } | null>(null)
   const [rejectRemarks, setRejectRemarks] = useState('')
   const [rejectError, setRejectError] = useState('')
   const [decisionLoading, setDecisionLoading] = useState(false)
   const [historyKind, setHistoryKind] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const list = await fetchOverrideRequests({ page_size: 200 })
+      setRequests(list.requests.map(toApprovalRequest))
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Unable to load the approval queue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
 
   const pending = useMemo(() => requests.filter((r) => r.status === 'pending'), [requests])
   const history = useMemo(() => requests.filter((r) => r.status !== 'pending'), [requests])
@@ -38,7 +96,7 @@ export function ApprovalQueuePage() {
     setRejectError('')
   }
 
-  const decide = (decision: 'approved' | 'rejected') => {
+  const decide = async (decision: 'approved' | 'rejected') => {
     const target = pendingDialog?.request
     if (!target) return
     if (decision === 'rejected' && !rejectRemarks.trim()) {
@@ -46,22 +104,13 @@ export function ApprovalQueuePage() {
       return
     }
     setDecisionLoading(true)
-    window.setTimeout(() => {
-      const note = decision === 'rejected' ? rejectRemarks.trim() : 'Request approved.'
-      setRequests((prev) =>
-        prev.map((r) =>
-          r.id === target.id
-            ? {
-                ...r,
-                status: decision,
-                decidedBy: user?.name ?? 'You',
-                decisionNote: note,
-                decidedMinutesAgo: 0,
-              }
-            : r,
-        ),
-      )
-      setDecisionLoading(false)
+    try {
+      const updated =
+        decision === 'approved'
+          ? await approveOverrideRequest(target.id)
+          : await rejectOverrideRequest(target.id, rejectRemarks.trim())
+      const mapped = toApprovalRequest(updated)
+      setRequests((prev) => prev.map((r) => (r.id === target.id ? mapped : r)))
       setPendingDialog(null)
       setRejectRemarks('')
       setRejectError('')
@@ -70,7 +119,15 @@ export function ApprovalQueuePage() {
         title: decision === 'approved' ? 'Request approved' : 'Request rejected',
         description: `${target.title} — ${decision === 'approved' ? 'approved' : 'rejected'} with remarks.`,
       })
-    }, 350)
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: decision === 'approved' ? 'Could not approve' : 'Could not reject',
+        description: err instanceof Error ? err.message : 'The request may already be decided — refresh the queue.',
+      })
+    } finally {
+      setDecisionLoading(false)
+    }
   }
 
   const pendingCount = pending.length
@@ -153,8 +210,30 @@ export function ApprovalQueuePage() {
         <SummaryChip label="Clash overrides" value={pendingByKind('clash-override')} tone="danger" />
       </div>
 
-      <div className="mt-6">
-        <Tabs
+      {loading ? (
+        <Card className="mt-6">
+          <CardContent className="flex items-center justify-center gap-3 py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-navy" aria-hidden="true" />
+            <p className="text-sm font-semibold text-ink-muted">Loading the approval queue…</p>
+          </CardContent>
+        </Card>
+      ) : loadError ? (
+        <Card className="mt-6">
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+            <AlertTriangle className="h-8 w-8 text-danger" aria-hidden="true" />
+            <div>
+              <p className="font-bold text-ink">Could not load the approval queue</p>
+              <p className="mt-1 text-sm text-ink-muted">{loadError}</p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="mt-6">
+            <Tabs
           defaultValue="queue"
           tabs={[
             {
@@ -209,7 +288,7 @@ export function ApprovalQueuePage() {
                                     </div>
                                     <h3 className="mt-1 text-sm font-bold leading-5 text-ink">{req.title}</h3>
                                     <p className="mt-0.5 text-xs text-ink-muted">
-                                      {req.requester} · {req.requesterRole} · {req.department}
+                                      {[req.requester, req.requesterRole, req.department].filter(Boolean).join(' · ')}
                                     </p>
                                   </div>
                                 </div>
@@ -223,21 +302,27 @@ export function ApprovalQueuePage() {
                                 <div>
                                   <dt className="font-semibold uppercase tracking-wide text-ink-muted">Affected courses</dt>
                                   <dd className="mt-1 flex flex-wrap gap-1">
-                                    {req.courses.map((code) => (
-                                      <span
-                                        key={code}
-                                        className="rounded bg-navy/10 px-1.5 py-0.5 font-bold text-navy"
-                                      >
-                                        {code}
-                                      </span>
-                                    ))}
+                                    {req.courses.length > 0 ? (
+                                      req.courses.map((code) => (
+                                        <span
+                                          key={code}
+                                          className="rounded bg-navy/10 px-1.5 py-0.5 font-bold text-navy"
+                                        >
+                                          {code}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="text-ink-muted">—</span>
+                                    )}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="font-semibold uppercase tracking-wide text-ink-muted">Impact</dt>
                                   <dd className="mt-1 flex items-start gap-1.5 font-semibold text-ink">
                                     <Users className="mt-0.5 h-3.5 w-3.5 text-ink-muted" aria-hidden="true" />
-                                    {req.affectedStudents} students affected
+                                    {req.affectedStudents === null
+                                      ? 'Affected count not recorded'
+                                      : `${req.affectedStudents} students affected`}
                                   </dd>
                                 </div>
                               </dl>
@@ -325,7 +410,9 @@ export function ApprovalQueuePage() {
             },
           ]}
         />
-      </div>
+          </div>
+        </>
+      )}
 
       {dialogRequest && pendingDialog?.decision === 'approve' && (
         <ConfirmDialog
@@ -333,7 +420,7 @@ export function ApprovalQueuePage() {
           onClose={closeDialog}
           onConfirm={() => void decide('approved')}
           title="Approve this request?"
-          description={`${dialogRequest.title} by ${dialogRequest.requester} — ${dialogRequest.affectedStudents} student(s) across ${dialogRequest.courses.join(', ')}. This decision will be recorded in the audit log.`}
+          description={`${dialogRequest.title} by ${dialogRequest.requester} — ${dialogRequest.affectedStudents === null ? 'unknown' : `${dialogRequest.affectedStudents} student(s)`} across ${dialogRequest.courses.length > 0 ? dialogRequest.courses.join(', ') : 'N/A'}. This decision will be recorded in the audit log.`}
           confirmLabel="Approve request"
           cancelLabel="Keep reviewing"
           variant="success"
@@ -366,7 +453,7 @@ export function ApprovalQueuePage() {
               <div className="text-sm text-ink-muted">
                 <p className="font-semibold text-ink">{dialogRequest.title}</p>
                 <p className="mt-0.5">
-                  {dialogRequest.requester} · {dialogRequest.requesterRole} · {dialogRequest.department}
+                  {[dialogRequest.requester, dialogRequest.requesterRole, dialogRequest.department].filter(Boolean).join(' · ')}
                 </p>
               </div>
             </div>

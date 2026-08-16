@@ -1,17 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Archive,
-  ArchiveRestore,
+  AlertTriangle,
   CalendarPlus,
   Check,
   Clock,
   Database,
   DoorOpen,
   KeyRound,
+  Loader2,
+  Lock,
+  Megaphone,
   Plus,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   Trash2,
+  Unlock,
   UserCheck,
   Users,
   XCircle,
@@ -28,27 +32,49 @@ import { Tabs } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toast-store'
 import {
   adminUserStatusMeta,
-  auditActionMeta,
-  mockAuditLog,
-  mockDepartments,
-  mockExamCycles,
-  mockPermissionMatrix,
-  mockRooms,
-  mockTimeSlots,
-  mockUserAccounts,
+  auditMeta,
   permissionMeta,
   type AdminUserAccount,
   type AuditLogEntry,
-  type CycleStatus,
   type DeptCoordinatorPermissions,
-  type MasterDepartment,
-  type MasterExamCycle,
-  type MasterRoom,
-  type MasterTimeSlot,
   type PermissionKey,
 } from '@/config/admin-mock'
-import { roleLabels } from '@/config/roles'
+import { roleLabelFor, roleLabels } from '@/config/roles'
 import { useAuthStore } from '@/stores/auth-store'
+import {
+  apiErrorMessage,
+  createDepartment,
+  createExamCycle,
+  createRoom,
+  createTimeSlot,
+  deleteDepartment,
+  deleteExamCycle,
+  deleteRoom,
+  deleteTimeSlot,
+  fetchAdminUsers,
+  fetchAuditLog,
+  fetchDepartments,
+  fetchExamCycles,
+  fetchPermissionMatrix,
+  fetchRooms,
+  fetchTimeSlots,
+  publishExamCycle,
+  resetUserPassword,
+  unlockExamCycle,
+  updateAdminUser,
+  updatePermissions,
+} from '@/services/admin-service'
+import { notifyScheduleChanged } from '@/lib/schedule-sync'
+import type {
+  ApiAdminUser,
+  ApiAuditLogEntry,
+  ApiDepartmentAdmin,
+  ApiExamCycleAdmin,
+  ApiPermissionMatrixAccount,
+  ApiRoomAdmin,
+  ApiTimeSlotAdmin,
+  CycleStatus,
+} from '@/lib/types'
 import { timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
 
@@ -56,6 +82,39 @@ const cycleStatusMeta: Record<CycleStatus, { label: string; badge: 'outline' | '
   draft: { label: 'Draft', badge: 'outline' },
   published: { label: 'Published', badge: 'published' },
   archived: { label: 'Archived', badge: 'default' },
+}
+
+function minutesSince(iso: string | null): number | null {
+  if (!iso) return null
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))
+}
+
+function LoadingState({ label }: { label: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-center gap-3 py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-navy" aria-hidden="true" />
+        <p className="text-sm font-semibold text-ink-muted">{label}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+        <AlertTriangle className="h-8 w-8 text-danger" aria-hidden="true" />
+        <div>
+          <p className="font-bold text-ink">Could not load this data</p>
+          <p className="mt-1 text-sm text-ink-muted">{message}</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Retry
+        </Button>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function AdminSettingsPage() {
@@ -129,52 +188,120 @@ function Toggle({
 
 type UserAction = 'reset' | 'force' | 'deactivate' | 'activate'
 
+function toAccount(u: ApiAdminUser): AdminUserAccount {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    department: u.department_code,
+    status: u.status === 'disabled' ? 'disabled' : u.must_change_password ? 'force-password-change' : 'active',
+    mfaEnabled: u.mfa_enabled,
+    lastActiveMinutesAgo: minutesSince(u.last_login_at),
+  }
+}
+
+function toPermissionRow(a: ApiPermissionMatrixAccount): DeptCoordinatorPermissions {
+  return {
+    id: a.id,
+    coordinator: a.name,
+    department: a.department_code ?? '—',
+    permissions: {
+      manage_schedule_entries: Boolean(a.permissions.manage_schedule_entries),
+      manage_invigilators: Boolean(a.permissions.manage_invigilators),
+      approve_overrides: Boolean(a.permissions.approve_overrides),
+      view_reports: Boolean(a.permissions.view_reports),
+    },
+  }
+}
+
 function UsersRolesTab() {
-  const [users, setUsers] = useState<AdminUserAccount[]>(() => mockUserAccounts())
-  const [permissions, setPermissions] = useState<DeptCoordinatorPermissions[]>(() => mockPermissionMatrix())
+  const [users, setUsers] = useState<AdminUserAccount[]>([])
+  const [permissions, setPermissions] = useState<DeptCoordinatorPermissions[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [dialog, setDialog] = useState<{ user: AdminUserAccount; action: UserAction } | null>(null)
   const [busy, setBusy] = useState(false)
+  const toggling = useRef(new Set<string>())
 
-  const runAction = (action: UserAction) => {
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const [userList, matrix] = await Promise.all([fetchAdminUsers(), fetchPermissionMatrix()])
+      setUsers(userList.map(toAccount))
+      setPermissions(matrix.map(toPermissionRow))
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Unable to load users and permissions')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const runAction = async (action: UserAction) => {
     const target = dialog?.user
     if (!target) return
     setBusy(true)
-    window.setTimeout(() => {
+    try {
       if (action === 'reset') {
+        await resetUserPassword(target.id)
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, status: 'force-password-change' } : u)))
         toast({
           variant: 'success',
-          title: 'Reset email sent',
-          description: `A password reset link was emailed to ${target.email}.`,
+          title: 'Password reset',
+          description: `A temporary password was issued for ${target.email} — shown in the server console.`,
+        })
+      } else if (action === 'force') {
+        await updateAdminUser(target.id, { must_change_password: true })
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, status: 'force-password-change' } : u)))
+        toast({
+          variant: 'success',
+          title: 'Password change forced',
+          description: `${target.name} must set a new password on next sign-in.`,
+        })
+      } else if (action === 'deactivate') {
+        await updateAdminUser(target.id, { status: 'disabled' })
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, status: 'disabled' } : u)))
+        toast({
+          variant: 'success',
+          title: 'Account deactivated',
+          description: `${target.name} can no longer sign in.`,
         })
       } else {
-        const status = action === 'deactivate' ? 'disabled' : action === 'activate' ? 'active' : 'force-password-change'
-        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, status } : u)))
+        await updateAdminUser(target.id, { status: 'active' })
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, status: 'active' } : u)))
         toast({
           variant: 'success',
-          title: action === 'deactivate' ? 'Account deactivated' : action === 'activate' ? 'Account reactivated' : 'Password change forced',
-          description:
-            action === 'deactivate'
-              ? `${target.name} can no longer sign in.`
-              : action === 'activate'
-                ? `${target.name} can sign in again.`
-                : `${target.name} must set a new password on next sign-in.`,
+          title: 'Account reactivated',
+          description: `${target.name} can sign in again.`,
         })
       }
-      setBusy(false)
       setDialog(null)
-    }, 300)
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Action failed',
+        description: apiErrorMessage(err, 'The account could not be updated.'),
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const actionMeta: Record<UserAction, { title: string; description: string; confirm: string; variant: 'primary' | 'danger' | 'success' }> = {
     reset: {
       title: 'Reset password?',
-      description: `A reset link will be emailed to ${dialog?.user.email ?? 'this user'}. They keep their current session.`,
-      confirm: 'Send reset email',
+      description: `A temporary password will be issued for ${dialog?.user.email ?? 'this user'} and shown in the server console. They must set a new one on next sign-in.`,
+      confirm: 'Reset password',
       variant: 'primary',
     },
     force: {
       title: 'Force password change?',
-      description: `${dialog?.user.name ?? 'This user'} will be signed out and must create a new password on their next sign-in.`,
+      description: `${dialog?.user.name ?? 'This user'} must create a new password on their next sign-in.`,
       confirm: 'Force password change',
       variant: 'primary',
     },
@@ -210,7 +337,7 @@ function UsersRolesTab() {
       header: 'Role',
       sortable: true,
       sortValue: (u) => u.role,
-      render: (u) => <Badge variant="outline">{roleLabels[u.role]}</Badge>,
+      render: (u) => <Badge variant="outline">{roleLabelFor(u.role)}</Badge>,
     },
     { key: 'department', header: 'Department', sortable: true, sortValue: (u) => u.department ?? '', render: (u) => u.department ?? '—' },
     {
@@ -248,7 +375,7 @@ function UsersRolesTab() {
       className: 'text-right',
       render: (u) => (
         <div className="flex flex-wrap justify-end gap-1.5">
-          <Button variant="secondary" size="sm" onClick={() => setDialog({ user: u, action: 'reset' })} title="Send password reset email">
+          <Button variant="secondary" size="sm" onClick={() => setDialog({ user: u, action: 'reset' })} title="Issue a temporary password">
             <KeyRound className="h-3.5 w-3.5" /> Reset
           </Button>
           <Button variant="outline" size="sm" onClick={() => setDialog({ user: u, action: 'force' })} title="Force a password change on next sign-in">
@@ -268,22 +395,45 @@ function UsersRolesTab() {
     },
   ]
 
-  const togglePermission = (permId: string, key: PermissionKey) => {
+  const togglePermission = async (permId: string, key: PermissionKey) => {
+    if (toggling.current.has(permId)) return
+    toggling.current.add(permId)
+    const row = permissions.find((p) => p.id === permId)
+    if (!row) {
+      toggling.current.delete(permId)
+      return
+    }
+    const nextValue = !row.permissions[key]
+    const meta = permissionMeta[key]
     setPermissions((prev) =>
-      prev.map((p) =>
-        p.id === permId ? { ...p, permissions: { ...p.permissions, [key]: !p.permissions[key] } } : p,
-      ),
+      prev.map((p) => (p.id === permId ? { ...p, permissions: { ...p.permissions, [key]: nextValue } } : p)),
     )
-    const target = permissions.find((p) => p.id === permId)
-    if (target) {
-      const meta = permissionMeta[key]
+    try {
+      const merged = await updatePermissions(permId, { [key]: nextValue })
+      setPermissions((prev) =>
+        prev.map((p) => (p.id === permId ? { ...p, permissions: { ...p.permissions, ...merged } } : p)),
+      )
       toast({
-        variant: 'info',
+        variant: 'success',
         title: 'Permission updated',
-        description: `${target.coordinator} (${target.department}) · ${meta.label} ${target.permissions[key] ? 'revoked' : 'granted'}.`,
+        description: `${row.coordinator} (${row.department}) · ${meta.label} ${nextValue ? 'granted' : 'revoked'}.`,
       })
+    } catch (err) {
+      setPermissions((prev) =>
+        prev.map((p) => (p.id === permId ? { ...p, permissions: { ...p.permissions, [key]: !nextValue } } : p)),
+      )
+      toast({
+        variant: 'danger',
+        title: 'Could not update permission',
+        description: apiErrorMessage(err, 'The permission was not changed.'),
+      })
+    } finally {
+      toggling.current.delete(permId)
     }
   }
+
+  if (loading) return <LoadingState label="Loading users and permissions…" />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => void load()} />
 
   return (
     <div className="space-y-6">
@@ -307,10 +457,13 @@ function UsersRolesTab() {
         <CardHeader>
           <CardTitle>Permission Manager</CardTitle>
           <CardDescription className="mt-1">
-            Toggle what each department coordinator can do. Changes apply instantly across the system.
+            Toggle what each department coordinator can do. Changes are enforced server-side on their next request.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {permissions.length === 0 && (
+            <p className="text-sm text-ink-muted">No department coordinators exist yet.</p>
+          )}
           {permissions.map((row) => (
             <div key={row.id} className="rounded-lg border border-line bg-surface/60 p-4">
               <div className="flex items-center gap-3">
@@ -324,8 +477,8 @@ function UsersRolesTab() {
               </div>
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {(Object.keys(permissionMeta) as PermissionKey[]).map((key) => {
-                  const meta = permissionMeta[key]
-                  const Icon = meta.icon
+                  const permMeta = permissionMeta[key]
+                  const Icon = permMeta.icon
                   const enabled = row.permissions[key]
                   return (
                     <div
@@ -341,14 +494,14 @@ function UsersRolesTab() {
                           aria-hidden="true"
                         />
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-ink">{meta.label}</p>
-                          <p className="text-xs leading-4 text-ink-muted">{meta.description}</p>
+                          <p className="text-sm font-semibold text-ink">{permMeta.label}</p>
+                          <p className="text-xs leading-4 text-ink-muted">{permMeta.description}</p>
                         </div>
                       </div>
                       <Toggle
                         checked={enabled}
-                        label={`${meta.label} for ${row.coordinator}`}
-                        onChange={() => togglePermission(row.id, key)}
+                        label={`${permMeta.label} for ${row.coordinator}`}
+                        onChange={() => void togglePermission(row.id, key)}
                       />
                     </div>
                   )
@@ -379,86 +532,189 @@ function UsersRolesTab() {
 // ── Master Data ─────────────────────────────────────────────────────────────
 
 type AddTarget = 'department' | 'room' | 'slot' | 'cycle'
+type CycleAction = 'publish' | 'unlock' | 'delete'
 
 function MasterDataTab() {
-  const [departments, setDepartments] = useState<MasterDepartment[]>(() => mockDepartments())
-  const [rooms, setRooms] = useState<MasterRoom[]>(() => mockRooms())
-  const [slots, setSlots] = useState<MasterTimeSlot[]>(() => mockTimeSlots())
-  const [cycles, setCycles] = useState<MasterExamCycle[]>(() => mockExamCycles())
+  const [departments, setDepartments] = useState<ApiDepartmentAdmin[]>([])
+  const [rooms, setRooms] = useState<ApiRoomAdmin[]>([])
+  const [slots, setSlots] = useState<ApiTimeSlotAdmin[]>([])
+  const [cycles, setCycles] = useState<ApiExamCycleAdmin[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   const [addTarget, setAddTarget] = useState<AddTarget | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
-  const [deleteTarget, setDeleteTarget] = useState<{ label: string; onConfirm: () => void } | null>(null)
-  const [archiveTarget, setArchiveTarget] = useState<MasterExamCycle | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ label: string; onConfirm: () => Promise<void> } | null>(null)
+  const [cycleDialog, setCycleDialog] = useState<{ cycle: ApiExamCycleAdmin; action: CycleAction } | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const [dept, room, slot, cyc] = await Promise.all([
+        fetchDepartments(),
+        fetchRooms(),
+        fetchTimeSlots(),
+        fetchExamCycles({ page_size: 200 }),
+      ])
+      setDepartments(dept)
+      setRooms(room)
+      setSlots(slot)
+      setCycles(cyc.cycles)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Unable to load master data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
   const setField = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }))
+  const cycleName = (id: string) => cycles.find((c) => c.id === id)?.name ?? id
 
   const openAdd = (target: AddTarget) => {
     setForm({})
     setAddTarget(target)
   }
 
-  const submitAdd = () => {
+  const submitAdd = async () => {
     if (!addTarget) return
-    if (addTarget === 'department') {
-      const name = form.name?.trim()
-      const code = form.code?.trim().toUpperCase()
-      if (!name || !code) return
-      setDepartments((prev) => [...prev, { id: `d-${Date.now()}`, code, name, coordinators: 0 }])
-      toast({ variant: 'success', title: 'Department created', description: `${name} (${code}) added to master data.` })
-    } else if (addTarget === 'room') {
-      const name = form.name?.trim()
-      const capacity = Number(form.capacity)
-      if (!name || !Number.isFinite(capacity) || capacity <= 0) return
-      setRooms((prev) => [...prev, { id: `r-${Date.now()}`, name, capacity, department: form.department || null }])
-      toast({ variant: 'success', title: 'Room created', description: `${name} with capacity ${capacity} added.` })
-    } else if (addTarget === 'slot') {
-      const label = form.label?.trim()
-      if (!label || !form.start?.trim() || !form.end?.trim()) return
-      setSlots((prev) => [...prev, { id: `t-${Date.now()}`, label, start_time: form.start, end_time: form.end }])
-      toast({ variant: 'success', title: 'Time slot created', description: `${label} (${form.start}–${form.end}) added.` })
-    } else {
-      const name = form.name?.trim()
-      const term = form.term?.trim()
-      const start = form.start
-      const end = form.end
-      if (!name || !term || !start || !end || start > end) return
-      setCycles((prev) => [
-        { id: `c-${Date.now()}`, name, term, start_date: start, end_date: end, status: 'draft' },
-        ...prev,
-      ])
-      toast({ variant: 'success', title: 'Exam cycle created', description: `${name} is now a draft cycle.` })
+    setBusy(true)
+    try {
+      if (addTarget === 'department') {
+        const name = form.name?.trim()
+        const code = form.code?.trim().toUpperCase()
+        if (!name || !code) return
+        const created = await createDepartment({ name, code })
+        setDepartments((prev) => [...prev, created])
+        toast({ variant: 'success', title: 'Department created', description: `${name} (${code}) added to master data.` })
+      } else if (addTarget === 'room') {
+        const name = form.name?.trim()
+        const capacity = Number(form.capacity)
+        if (!name || !Number.isFinite(capacity) || capacity <= 0) return
+        const created = await createRoom({ name, capacity, department_id: form.department?.trim() || null })
+        setRooms((prev) => [...prev, created])
+        toast({ variant: 'success', title: 'Room created', description: `${name} with capacity ${capacity} added.` })
+      } else if (addTarget === 'slot') {
+        const label = form.label?.trim()
+        if (!label || !form.start?.trim() || !form.end?.trim() || !form.cycle?.trim()) return
+        const created = await createTimeSlot({
+          label,
+          start_time: form.start,
+          end_time: form.end,
+          exam_cycle_id: form.cycle,
+        })
+        setSlots((prev) => [...prev, created])
+        toast({ variant: 'success', title: 'Time slot created', description: `${label} (${form.start}–${form.end}) added.` })
+      } else {
+        const name = form.name?.trim()
+        const term = form.term?.trim()
+        const start = form.start
+        const end = form.end
+        if (!name || !term || !start || !end || start > end) return
+        const created = await createExamCycle({ name, term, start_date: start, end_date: end })
+        setCycles((prev) => [created, ...prev])
+        toast({ variant: 'success', title: 'Exam cycle created', description: `${name} is now a draft cycle.` })
+      }
+      setAddTarget(null)
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Could not save',
+        description: apiErrorMessage(err, 'The entry could not be created.'),
+      })
+    } finally {
+      setBusy(false)
     }
-    setAddTarget(null)
   }
 
-  const confirmDelete = (label: string, onConfirm: () => void) => setDeleteTarget({ label, onConfirm })
-  const runDelete = () => {
+  const confirmDelete = (label: string, onConfirm: () => Promise<void>) => setDeleteTarget({ label, onConfirm })
+
+  const runDelete = async () => {
+    if (!deleteTarget) return
     setBusy(true)
-    window.setTimeout(() => {
-      deleteTarget?.onConfirm()
-      setBusy(false)
+    try {
+      await deleteTarget.onConfirm()
       setDeleteTarget(null)
-      toast({ variant: 'success', title: 'Removed', description: deleteTarget?.label })
-    }, 250)
+      toast({ variant: 'success', title: 'Removed', description: deleteTarget.label })
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Could not remove',
+        description: apiErrorMessage(err, 'The entry could not be removed.'),
+      })
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const archiveCycle = () => {
-    if (!archiveTarget) return
+  const runCycleAction = async () => {
+    const target = cycleDialog
+    if (!target) return
     setBusy(true)
-    window.setTimeout(() => {
-      setCycles((prev) => prev.map((c) => (c.id === archiveTarget.id ? { ...c, status: 'archived' } : c)))
+    try {
+      if (target.action === 'delete') {
+        await deleteExamCycle(target.cycle.id)
+        setCycles((prev) => prev.filter((c) => c.id !== target.cycle.id))
+        toast({ variant: 'success', title: 'Cycle deleted', description: `${target.cycle.name} was removed.` })
+      } else if (target.action === 'publish') {
+        const updated = await publishExamCycle(target.cycle.id)
+        setCycles((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+        notifyScheduleChanged()
+        toast({ variant: 'success', title: 'Cycle published', description: `${updated.name} is live — editing is locked.` })
+      } else {
+        const updated = await unlockExamCycle(target.cycle.id)
+        setCycles((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+        notifyScheduleChanged()
+        toast({ variant: 'success', title: 'Cycle unlocked', description: `${updated.name} is editable again (draft).` })
+      }
+      setCycleDialog(null)
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Action failed',
+        description: apiErrorMessage(err, 'The exam cycle could not be updated.'),
+      })
+    } finally {
       setBusy(false)
-      setArchiveTarget(null)
-      toast({ variant: 'success', title: 'Cycle archived', description: `${archiveTarget.name} is read-only now.` })
-    }, 300)
+    }
   }
+
+  const cycleDialogMeta = (() => {
+    if (!cycleDialog) return null
+    const { cycle, action } = cycleDialog
+    if (action === 'publish') {
+      return {
+        title: 'Publish this exam cycle?',
+        description: `${cycle.name} goes live — timetable edits are locked until an admin unlocks it. Everyone with an entry in the cycle is notified.`,
+        confirm: 'Publish cycle',
+        variant: 'primary' as const,
+      }
+    }
+    if (action === 'unlock') {
+      return {
+        title: 'Unlock this exam cycle?',
+        description: `${cycle.name} returns to draft — the timetable can be edited again.`,
+        confirm: 'Unlock cycle',
+        variant: 'primary' as const,
+      }
+    }
+    return {
+      title: 'Delete this exam cycle?',
+      description: `${cycle.name} will be removed from master data. Only empty draft cycles can be deleted.`,
+      confirm: 'Delete cycle',
+      variant: 'danger' as const,
+    }
+  })()
 
   const addDisabled = (() => {
     if (!addTarget) return true
     if (addTarget === 'room') return !form.name?.trim() || !(Number(form.capacity) > 0)
-    if (addTarget === 'slot') return !form.label?.trim() || !form.start?.trim() || !form.end?.trim()
+    if (addTarget === 'slot') return !form.label?.trim() || !form.start?.trim() || !form.end?.trim() || !form.cycle?.trim()
     if (addTarget === 'cycle') {
       const start = form.start ?? ''
       const end = form.end ?? ''
@@ -466,6 +722,9 @@ function MasterDataTab() {
     }
     return !form.name?.trim() || !form.code?.trim()
   })()
+
+  if (loading) return <LoadingState label="Loading master data…" />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => void load()} />
 
   return (
     <div className="space-y-6">
@@ -488,9 +747,9 @@ function MasterDataTab() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{d.name}</p>
-                  <p className="text-xs text-ink-muted">{d.coordinators} coordinator(s)</p>
+                  <p className="text-xs text-ink-muted">{d.rooms_count} rooms · {d.courses_count} courses</p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${d.name} department`, () => setDepartments((p) => p.filter((x) => x.id !== d.id)))} aria-label={`Delete ${d.name}`}>
+                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${d.name} department`, async () => { await deleteDepartment(d.id); setDepartments((p) => p.filter((x) => x.id !== d.id)) })} aria-label={`Delete ${d.name}`}>
                   <Trash2 className="h-4 w-4 text-ink-muted hover:text-danger" />
                 </Button>
               </div>
@@ -516,10 +775,10 @@ function MasterDataTab() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{r.name}</p>
-                  <p className="text-xs text-ink-muted">{r.department ?? 'General use'}</p>
+                  <p className="text-xs text-ink-muted">{r.department_name ?? 'General use'}</p>
                 </div>
                 <Badge variant="outline">{r.capacity} seats</Badge>
-                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${r.name} room`, () => setRooms((p) => p.filter((x) => x.id !== r.id)))} aria-label={`Delete ${r.name}`}>
+                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${r.name} room`, async () => { await deleteRoom(r.id); setRooms((p) => p.filter((x) => x.id !== r.id)) })} aria-label={`Delete ${r.name}`}>
                   <Trash2 className="h-4 w-4 text-ink-muted hover:text-danger" />
                 </Button>
               </div>
@@ -531,7 +790,7 @@ function MasterDataTab() {
           <CardHeader className="flex-row items-center justify-between">
             <div>
               <CardTitle>Time Slots</CardTitle>
-              <CardDescription className="mt-1">Exam session windows per day.</CardDescription>
+              <CardDescription className="mt-1">Exam session windows per day, tied to a cycle.</CardDescription>
             </div>
             <Button variant="secondary" size="sm" onClick={() => openAdd('slot')}>
               <Plus className="h-4 w-4" /> Add
@@ -545,9 +804,9 @@ function MasterDataTab() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-ink">{s.label}</p>
-                  <p className="text-xs text-ink-muted">{s.start_time} – {s.end_time}</p>
+                  <p className="text-xs text-ink-muted">{s.start_time} – {s.end_time} · {cycleName(s.exam_cycle_id)}</p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${s.label} time slot`, () => setSlots((p) => p.filter((x) => x.id !== s.id)))} aria-label={`Delete ${s.label}`}>
+                <Button variant="ghost" size="sm" onClick={() => confirmDelete(`${s.label} time slot`, async () => { await deleteTimeSlot(s.id); setSlots((p) => p.filter((x) => x.id !== s.id)) })} aria-label={`Delete ${s.label}`}>
                   <Trash2 className="h-4 w-4 text-ink-muted hover:text-danger" />
                 </Button>
               </div>
@@ -559,7 +818,9 @@ function MasterDataTab() {
           <CardHeader className="flex-row items-center justify-between">
             <div>
               <CardTitle>Exam Cycles</CardTitle>
-              <CardDescription className="mt-1">Create cycles, then archive them to make them read-only.</CardDescription>
+              <CardDescription className="mt-1">
+                Publish a cycle to lock the timetable; unlock it later to apply corrections.
+              </CardDescription>
             </div>
             <Button variant="secondary" size="sm" onClick={() => openAdd('cycle')}>
               <CalendarPlus className="h-4 w-4" /> Create
@@ -574,19 +835,30 @@ function MasterDataTab() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-ink">{c.name}</p>
                   <p className="text-xs text-ink-muted">
-                    {c.term} · {c.start_date} → {c.end_date}
+                    {c.term} · {c.start_date} → {c.end_date} · {c.entries_count} entries
                   </p>
                 </div>
                 <Badge variant={cycleStatusMeta[c.status].badge} dot>
                   {cycleStatusMeta[c.status].label}
                 </Badge>
-                {c.status !== 'archived' ? (
-                  <Button variant="ghost" size="sm" onClick={() => setArchiveTarget(c)} aria-label={`Archive ${c.name}`}>
-                    <Archive className="h-4 w-4 text-ink-muted hover:text-navy" />
+                {c.status === 'draft' && (
+                  <>
+                    <Button variant="secondary" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'publish' })} title="Publish this cycle">
+                      <Megaphone className="h-3.5 w-3.5" /> Publish
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'delete' })} title="Delete this cycle">
+                      <Trash2 className="h-4 w-4 text-ink-muted hover:text-danger" />
+                    </Button>
+                  </>
+                )}
+                {c.status === 'published' && (
+                  <Button variant="secondary" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'unlock' })} title="Unlock this cycle for corrections">
+                    <Unlock className="h-3.5 w-3.5" /> Unlock
                   </Button>
-                ) : (
-                  <span className="px-2 text-xs text-ink-muted" title="Archived cycles are read-only">
-                    <ArchiveRestore className="h-4 w-4" />
+                )}
+                {c.status === 'archived' && (
+                  <span className="px-2 text-xs text-ink-muted" title="Archived cycles are permanently read-only">
+                    <Lock className="h-4 w-4" />
                   </span>
                 )}
               </div>
@@ -605,7 +877,7 @@ function MasterDataTab() {
             <Button variant="secondary" onClick={() => setAddTarget(null)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={submitAdd} disabled={addDisabled}>
+            <Button variant="primary" onClick={() => void submitAdd()} disabled={addDisabled || busy} loading={busy}>
               <Check className="h-4 w-4" />
               {addTarget === 'cycle' ? 'Create cycle' : 'Add'}
             </Button>
@@ -629,7 +901,7 @@ function MasterDataTab() {
                 clearable
                 value={form.department ?? ''}
                 onChange={(v) => setField('department', v)}
-                options={departments.map((d) => ({ value: d.code, label: `${d.code} · ${d.name}` }))}
+                options={departments.map((d) => ({ value: d.id, label: `${d.code} · ${d.name}` }))}
               />
             </>
           )}
@@ -640,6 +912,13 @@ function MasterDataTab() {
                 <Input label="Start time" type="time" required value={form.start ?? ''} onChange={(e) => setField('start', e.target.value)} />
                 <Input label="End time" type="time" required value={form.end ?? ''} onChange={(e) => setField('end', e.target.value)} />
               </div>
+              <Select
+                label="Exam cycle"
+                placeholder="Select a cycle…"
+                value={form.cycle ?? ''}
+                onChange={(v) => setField('cycle', v)}
+                options={cycles.map((c) => ({ value: c.id, label: c.name }))}
+              />
             </>
           )}
           {addTarget === 'cycle' && (
@@ -671,15 +950,16 @@ function MasterDataTab() {
         />
       )}
 
-      {archiveTarget && (
+      {cycleDialog && cycleDialogMeta && (
         <ConfirmDialog
           open
-          onClose={() => setArchiveTarget(null)}
-          onConfirm={() => void archiveCycle()}
-          title="Archive this exam cycle?"
-          description={`${archiveTarget.name} becomes read-only. Schedules inside stay visible but editing is locked.`}
-          confirmLabel="Archive cycle"
-          variant="primary"
+          onClose={() => setCycleDialog(null)}
+          onConfirm={() => void runCycleAction()}
+          title={cycleDialogMeta.title}
+          description={cycleDialogMeta.description}
+          confirmLabel={cycleDialogMeta.confirm}
+          cancelLabel="Cancel"
+          variant={cycleDialogMeta.variant}
           loading={busy}
         />
       )}
@@ -689,23 +969,74 @@ function MasterDataTab() {
 
 // ── Audit Log ───────────────────────────────────────────────────────────────
 
+function toAuditEntry(e: ApiAuditLogEntry): AuditLogEntry {
+  return {
+    id: e.id,
+    action: e.action_type,
+    actor: e.performed_by?.name ?? 'System',
+    actorRole: e.performed_by?.role ?? 'admin',
+    detail: auditDetail(e),
+    minutesAgo: minutesSince(e.timestamp) ?? 0,
+  }
+}
+
+function auditDetail(e: ApiAuditLogEntry): string {
+  const meta = (e.meta ?? {}) as Record<string, unknown>
+  const label = e.action_type.split('.').slice(1).join('.').replace(/_/g, ' ')
+
+  if (typeof meta.name === 'string') return `${label}: ${meta.name}`
+
+  if (e.action_type === 'user.permissions_update' && meta.permissions && typeof meta.permissions === 'object') {
+    const map = meta.permissions as Record<string, boolean>
+    const bits = Object.entries(map)
+      .map(([key, value]) => `${key.replace(/_/g, ' ')} ${value ? 'on' : 'off'}`)
+      .join(', ')
+    return `permissions → ${bits}`
+  }
+
+  if (e.action_type === 'override_request.create' && typeof meta.reason === 'string') {
+    return `reason: ${meta.reason}`
+  }
+
+  return label
+}
+
 function AuditLogTab() {
-  const [entries] = useState<AuditLogEntry[]>(() => mockAuditLog())
+  const [entries, setEntries] = useState<AuditLogEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [group, setGroup] = useState('')
   const [query, setQuery] = useState('')
 
+  const load = async () => {
+    setLoading(true)
+    setLoadError('')
+    try {
+      const list = await fetchAuditLog({ page_size: 200 })
+      setEntries(list.entries.map(toAuditEntry))
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Unable to load the audit log')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
   const groups = useMemo(() => {
     const seen = new Set<string>()
-    for (const entry of entries) seen.add(auditActionMeta[entry.action].group)
+    for (const entry of entries) seen.add(auditMeta(entry.action).group)
     return [...seen].map((g) => ({ value: g, label: g }))
   }, [entries])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return entries.filter((entry) => {
-      if (group && auditActionMeta[entry.action].group !== group) return false
+      if (group && auditMeta(entry.action).group !== group) return false
       if (q) {
-        const hay = `${entry.actor} ${entry.detail} ${auditActionMeta[entry.action].label}`.toLowerCase()
+        const hay = `${entry.actor} ${entry.detail} ${auditMeta(entry.action).label}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
@@ -730,7 +1061,7 @@ function AuditLogTab() {
       render: (e) => (
         <div className="min-w-0">
           <p className="font-semibold text-ink">{e.actor}</p>
-          <p className="text-xs text-ink-muted">{roleLabels[e.actorRole]}</p>
+          <p className="text-xs text-ink-muted">{roleLabelFor(e.actorRole)}</p>
         </div>
       ),
     },
@@ -738,17 +1069,23 @@ function AuditLogTab() {
       key: 'action',
       header: 'Action',
       sortable: true,
-      sortValue: (e) => auditActionMeta[e.action].label,
-      render: (e) => (
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-          {auditActionMeta[e.action].group}
-          <span className="text-ink-muted">·</span>
-          {auditActionMeta[e.action].label}
-        </span>
-      ),
+      sortValue: (e) => auditMeta(e.action).label,
+      render: (e) => {
+        const meta = auditMeta(e.action)
+        return (
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+            {meta.group}
+            <span className="text-ink-muted">·</span>
+            {meta.label}
+          </span>
+        )
+      },
     },
     { key: 'detail', header: 'Detail', className: 'max-w-[340px]', render: (e) => <span className="block truncate text-ink-muted" title={e.detail}>{e.detail}</span> },
   ]
+
+  if (loading) return <LoadingState label="Loading the audit log…" />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => void load()} />
 
   return (
     <Card>
@@ -759,7 +1096,12 @@ function AuditLogTab() {
             A traceable record of authentication, scheduling, assignment and approval actions. Read-only.
           </CardDescription>
         </div>
-        <Badge variant="outline">{filtered.length} events</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline">{filtered.length} events</Badge>
+          <Button variant="ghost" size="sm" onClick={() => void load()} title="Refresh the audit log">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-1">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

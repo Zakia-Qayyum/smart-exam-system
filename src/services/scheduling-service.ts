@@ -6,6 +6,7 @@ import type {
   ApiClashRecord,
   ApiClashScanResult,
   ApiCyclePublish,
+  ApiExamCycleAdmin,
   ApiGenerateJob,
   ApiSaveResult,
   ApiScheduleEntry,
@@ -66,6 +67,17 @@ export async function publishCycle(cycleId: string): Promise<ApiCyclePublish> {
   })
   if (status !== 200) throwFor(status, body, 'Unable to publish the datesheet')
   return body
+}
+
+/** Explicitly unlock a published cycle for corrections (status → draft). */
+export async function unlockCycle(cycleId: string): Promise<ApiExamCycleAdmin> {
+  const { status, body } = await apiFetch<{ cycle: ApiExamCycleAdmin }>(`/api/exam-cycles/${cycleId}/unlock`, {
+    method: 'POST',
+    body: {},
+    auth: true,
+  })
+  if (status !== 200) throwFor(status, body, 'Unable to unlock the datesheet')
+  return body.cycle
 }
 
 export interface SaveEntryInput {
