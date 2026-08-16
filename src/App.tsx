@@ -18,6 +18,8 @@ import { CalendarPage } from '@/pages/calendar'
 import { ClashesPage } from '@/pages/clashes'
 import { InvigilatorsPage } from '@/pages/invigilators'
 import { AssignmentsPage } from '@/pages/assignments'
+import { ApprovalQueuePage as ApprovalsPage } from '@/pages/approvals'
+import { AdminSettingsPage as SettingsPage } from '@/pages/settings'
 import { ComponentsShowcase } from '@/pages/components-showcase'
 
 const dedicatedPages: Record<string, ComponentType> = {
@@ -28,6 +30,8 @@ const dedicatedPages: Record<string, ComponentType> = {
   '/clashes': ClashesPage,
   '/invigilators': InvigilatorsPage,
   '/assignments': AssignmentsPage,
+  '/approvals': ApprovalsPage,
+  '/settings': SettingsPage,
 }
 
 function HomeRedirect() {

@@ -505,9 +505,9 @@ function WeekCell({
 
 // ── Main calendar ──────────────────────────────────────────────────────────
 
-export function DatesheetCalendar() {
+export function DatesheetCalendar({ readOnly = false }: { readOnly?: boolean }) {
   const user = useAuthStore((s) => s.user)
-  const canPublish = user?.role === 'exam-coordinator' || user?.role === 'admin'
+  const canPublish = !readOnly && (user?.role === 'exam-coordinator' || user?.role === 'admin')
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
