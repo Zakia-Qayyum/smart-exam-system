@@ -387,7 +387,7 @@ export interface ApiScheduleEntry {
   room_capacity: number
   enrolled_count: number
   status: ApiScheduleStatus
-  invigilators: Array<{ id: string; name: string }>
+  invigilators: Array<{ id: string; name: string; assignment_id: string; status: 'assigned' | 'confirmed' | 'declined' }>
   created_by: string
   created_at: string
 }
@@ -517,4 +517,88 @@ export interface ApiGenerateJob {
   completedAt?: string
   result?: ApiGenerateResult
   error?: string
+}
+
+export type AssignmentStatus = 'assigned' | 'confirmed' | 'declined'
+
+export interface ApiInvigilatorAssignment {
+  id: string
+  schedule_entry_id: string
+  invigilator_id: string
+  invigilator_name: string
+  course_code: string
+  course_title: string
+  department_id: string
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  room_id: string
+  room_name: string
+  status: AssignmentStatus
+}
+
+export interface UnassignedMatrixCell {
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  start_time: string
+  end_time: string
+  room_id: string
+  room_name: string
+  room_capacity: number
+  schedule_entry_id: string | null
+  course_code: string | null
+  course_title: string | null
+  department_id: string | null
+  batch: string | null
+  semester: string | null
+  enrolled_count: number | null
+  invigilators_needed: number
+  assigned_invigilators: Array<{ id: string; assignment_id: string; name: string; status: AssignmentStatus }>
+  needs_assignment: boolean
+}
+
+export interface UnassignedMatrix {
+  cycle: ApiCycle
+  days: string[]
+  time_slots: Array<{ id: string; label: string; start_time: string; end_time: string }>
+  rooms: Array<{ id: string; name: string; capacity: number }>
+  cells: UnassignedMatrixCell[]
+  summary: {
+    sessions: number
+    with_entries: number
+    open_sessions: number
+    unassigned_sessions: number
+    assigned: number
+    seats_remaining: number
+  }
+}
+
+export interface AutoAssignProposal {
+  id: string
+  schedule_entry_id: string
+  invigilator_id: string
+  invigilator_name: string
+  course_code: string
+  course_title: string
+  department_id: string
+  date: string
+  time_slot_id: string
+  time_slot_label: string
+  room_id: string
+  room_name: string
+  reason: string
+}
+
+export interface AutoAssignPlan {
+  exam_cycle_id: string
+  proposals: AutoAssignProposal[]
+  summary: { proposed: number; sessions_filled: number; seats_remaining: number; skipped: number }
+}
+
+export interface AutoAssignCommitResult {
+  committed: number
+  skipped: number
+  assignments: ApiInvigilatorAssignment[]
+  skipped_reasons: Array<{ schedule_entry_id: string; invigilator_id: string; reason: string }>
 }

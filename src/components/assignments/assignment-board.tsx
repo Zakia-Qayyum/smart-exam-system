@@ -24,18 +24,26 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast-store'
 import { cn } from '@/lib/utils'
+import { ApiError } from '@/services/api-client'
 import { fetchCatalog, fetchScheduleEntries } from '@/services/scheduling-service'
+import {
+  commitAutoAssign,
+  createAssignment,
+  deleteAssignment,
+  proposeAutoAssign,
+} from '@/services/assignments-service'
 import { formatDateLabel } from '@/config/scheduling-data'
 import { useInvigilatorsStore } from '@/stores/invigilators-store'
+import { notifyScheduleChanged } from '@/lib/schedule-sync'
 import type {
   ApiRoom,
   ApiScheduleEntry,
-  ApiTimeSlot,
+  AutoAssignPlan,
   DirectoryInvigilator,
   SchedulingCatalog,
 } from '@/lib/types'
 
-type ChipSource = 'existing' | 'manual' | 'auto'
+type ChipSource = 'existing' | 'auto'
 
 interface BoardChip {
   id: string
@@ -44,12 +52,11 @@ interface BoardChip {
   availability: DirectoryInvigilator['availability']
   status: 'assigned' | 'confirmed'
   source: ChipSource
+  assignment_id?: string
 }
 
 interface DayBoardState {
   pending: Record<string, BoardChip[]>
-  removed: string[]
-  committed: boolean
 }
 
 interface CellRow {
@@ -59,10 +66,15 @@ interface CellRow {
 
 const cellKeyOf = (slotId: string, roomId: string) => `${slotId}::${roomId}`
 
-let chipSeq = 0
-const chipId = () => `chip-${Date.now()}-${chipSeq++}`
+const emptyDay = (): DayBoardState => ({ pending: {} })
 
-const emptyDay = (): DayBoardState => ({ pending: {}, removed: [], committed: false })
+function apiMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { error?: string } | undefined
+    return body?.error ?? err.message ?? fallback
+  }
+  return err instanceof Error ? err.message : fallback
+}
 
 function PoolCard({
   inv,
@@ -122,12 +134,12 @@ function PoolCard({
 }
 
 function Chip({ chip, onRemove }: { chip: BoardChip; onRemove: () => void }) {
-  const newChip = chip.source !== 'existing'
+  const isPending = chip.source === 'auto'
   return (
     <span
       className={cn(
         'inline-flex animate-[chipIn_180ms_ease-out] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
-        newChip ? 'border-gold/40 bg-gold/10 text-gold-dark' : 'border-line bg-surface text-ink',
+        isPending ? 'border-gold/40 bg-gold/10 text-gold-dark' : 'border-line bg-surface text-ink',
       )}
       title={chip.status === 'confirmed' ? 'Confirmed' : 'Assigned — unconfirmed'}
     >
@@ -136,9 +148,9 @@ function Chip({ chip, onRemove }: { chip: BoardChip; onRemove: () => void }) {
         aria-hidden="true"
       />
       <span className="max-w-[110px] truncate">{chip.name}</span>
-      {newChip && (
+      {isPending && (
         <span className="rounded-full bg-gold/15 px-1 text-[9px] font-bold uppercase tracking-wide text-gold-dark">
-          new
+          pending
         </span>
       )}
       <button
@@ -204,7 +216,7 @@ function BoardCell({
       ) : (
         <div className="flex flex-1 items-center justify-center text-center">
           <p className="text-[11px] font-medium text-ink-muted">
-            {armed ? 'Click to assign' : 'Drop invigilator here'}
+            {armed ? 'Click to assign' : entry ? 'Drop invigilator here' : 'Open session'}
           </p>
         </div>
       )}
@@ -230,8 +242,8 @@ export function AssignmentBoard() {
   const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [autoRunning, setAutoRunning] = useState(false)
-  const [autoProgress, setAutoProgress] = useState({ done: 0, total: 0 })
   const [showReview, setShowReview] = useState(false)
+  const [autoPlan, setAutoPlan] = useState<AutoAssignPlan | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const [activeInv, setActiveInv] = useState<DirectoryInvigilator | null>(null)
@@ -251,6 +263,16 @@ export function AssignmentBoard() {
       })
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  const reloadData = useCallback(async () => {
+    try {
+      const list = await fetchScheduleEntries({ page_size: 200 })
+      setEntries(list.entries)
+      await useInvigilatorsStore.getState().refresh()
+    } catch {
+      /* keep the current view if a refresh fails */
     }
   }, [])
 
@@ -299,39 +321,34 @@ export function AssignmentBoard() {
   }
 
   const cells = useMemo(() => {
-    const existing: Record<string, BoardChip[]> = {}
+    const out: Record<string, BoardChip[]> = {}
     for (const e of entries) {
       if (e.date !== selectedDate) continue
       const key = cellKeyOf(e.time_slot_id, e.room_id)
-      existing[key] = e.invigilators.map((inv) => {
+      out[key] = e.invigilators.map((inv) => {
         const full = roster.find((r) => r.id === inv.id)
         return {
           id: `existing-${e.id}-${inv.id}`,
           invigilator_id: inv.id,
           name: inv.name,
           availability: full?.availability ?? 'Available',
-          status: 'assigned' as const,
+          status: inv.status === 'confirmed' ? ('confirmed' as const) : ('assigned' as const),
           source: 'existing' as const,
+          assignment_id: inv.assignment_id,
         }
       })
     }
-    const removed = new Set(dayState.removed)
-    const out: Record<string, BoardChip[]> = {}
-    const keys = new Set([...Object.keys(existing), ...Object.keys(dayState.pending)])
-    for (const key of keys) {
-      const ex = (existing[key] ?? []).filter((c) => !removed.has(c.id))
-      const pen = dayState.pending[key] ?? []
-      const taken = new Set(ex.map((c) => c.invigilator_id))
-      out[key] = [...ex, ...pen.filter((c) => !taken.has(c.invigilator_id))]
+    for (const [key, chips] of Object.entries(dayState.pending)) {
+      out[key] = [...(out[key] ?? []), ...chips]
     }
     return out
-  }, [entries, roster, selectedDate, dayState])
+  }, [entries, roster, selectedDate, dayState.pending])
 
   const pendingCounts = useMemo(() => {
     const m = new Map<string, number>()
     for (const chips of Object.values(cells)) {
       for (const c of chips) {
-        if (c.source !== 'existing') m.set(c.invigilator_id, (m.get(c.invigilator_id) ?? 0) + 1)
+        if (c.source === 'auto') m.set(c.invigilator_id, (m.get(c.invigilator_id) ?? 0) + 1)
       }
     }
     return m
@@ -342,11 +359,11 @@ export function AssignmentBoard() {
     [pendingCounts],
   )
 
-  const unconfirmed = useMemo(() => {
+  const staged = useMemo(() => {
     const rows: CellRow[] = []
     for (const [cellKey, chips] of Object.entries(cells)) {
       for (const chip of chips) {
-        if (chip.source !== 'existing' && chip.status === 'assigned') rows.push({ cellKey, chip })
+        if (chip.source === 'auto') rows.push({ cellKey, chip })
       }
     }
     return rows
@@ -372,10 +389,20 @@ export function AssignmentBoard() {
       return kSlot === slotId && chips.some((c) => c.invigilator_id === invId)
     })
 
-  const attemptAssign = (inv: DirectoryInvigilator, cellKey: string) => {
+  const attemptAssign = async (inv: DirectoryInvigilator, cellKey: string) => {
     if (autoRunning) return
     const [slotId] = cellKey.split('::')
+    const entry = entryByCell[cellKey]
     const inCell = cells[cellKey] ?? []
+
+    if (!entry) {
+      toast({
+        variant: 'info',
+        title: 'Open session',
+        description: 'Assignments need a scheduled exam — schedule this session first.',
+      })
+      return
+    }
     if (inCell.some((c) => c.invigilator_id === inv.id)) {
       toast({ variant: 'info', title: 'Already assigned', description: `${inv.name} is already on this session.` })
       return
@@ -403,46 +430,59 @@ export function AssignmentBoard() {
       })
       return
     }
-    updateDay((d) => ({
-      ...d,
-      committed: false,
-      pending: {
-        ...d.pending,
-        [cellKey]: [
-          ...(d.pending[cellKey] ?? []),
-          {
-            id: chipId(),
-            invigilator_id: inv.id,
-            name: inv.name,
-            availability: inv.availability,
-            status: 'assigned' as const,
-            source: 'manual' as const,
-          },
-        ],
-      },
-    }))
-    setArmedId('')
-    toast({
-      variant: 'success',
-      title: 'Assigned',
-      description: `${inv.name} → ${cellLabel(cellKey)}. Review before confirming.`,
-    })
+
+    try {
+      const assignment = await createAssignment({ schedule_entry_id: entry.id, invigilator_id: inv.id })
+      await reloadData()
+      notifyScheduleChanged()
+      setArmedId('')
+      toast({
+        variant: 'success',
+        title: 'Assigned',
+        description: `${inv.name} → ${cellLabel(cellKey)}. Recorded and refresh-safe.`,
+      })
+      if (assignment.status === 'confirmed') {
+        toast({ variant: 'info', title: 'Confirmed', description: 'This invigilator had already confirmed the duty.' })
+      }
+    } catch (err) {
+      shake(cellKey)
+      toast({
+        variant: 'danger',
+        title: 'Assignment rejected by the server',
+        description: apiMessage(err, 'The server refused this assignment.'),
+        duration: 6000,
+      })
+    }
   }
 
-  const removeChip = (cellKey: string, chip: BoardChip) => {
-    updateDay((d) => {
-      if (chip.source === 'existing') {
-        return { ...d, committed: false, removed: [...d.removed, chip.id] }
-      }
-      return {
-        ...d,
-        committed: false,
+  const removeChip = async (cellKey: string, chip: BoardChip) => {
+    if (chip.source === 'auto') {
+      updateDay((d) => ({
         pending: {
           ...d.pending,
           [cellKey]: (d.pending[cellKey] ?? []).filter((c) => c.id !== chip.id),
         },
-      }
-    })
+      }))
+      return
+    }
+    if (!chip.assignment_id) return
+    try {
+      await deleteAssignment(chip.assignment_id)
+      await reloadData()
+      notifyScheduleChanged()
+      toast({
+        variant: 'success',
+        title: 'Removed',
+        description: `${chip.name} removed from ${cellLabel(cellKey)}.`,
+      })
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Could not remove assignment',
+        description: apiMessage(err, 'The server refused to remove this assignment.'),
+        duration: 6000,
+      })
+    }
   }
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -453,7 +493,7 @@ export function AssignmentBoard() {
   const handleDragEnd = (e: DragEndEvent) => {
     const overId = e.over ? String(e.over.id) : ''
     if (overId.startsWith('cell-') && activeInv) {
-      attemptAssign(activeInv, overId.slice('cell-'.length))
+      void attemptAssign(activeInv, overId.slice('cell-'.length))
     }
     setActiveInv(null)
   }
@@ -474,119 +514,96 @@ export function AssignmentBoard() {
     })
   }, [roster, search, deptId, underMaxOnly, loadOf])
 
-  const pickBestInvigilator = (
-    slot: ApiTimeSlot,
-    entry: ApiScheduleEntry | undefined,
-    pickedBySlot: Map<string, Set<string>>,
-    planCounts: Map<string, number>,
-  ): DirectoryInvigilator | null => {
-    const candidates = filteredPool.filter((inv) => {
-      if (inv.availability === 'On leave') return false
-      if (loadOf(inv) + (planCounts.get(inv.id) ?? 0) >= inv.max_assignments_per_cycle) return false
-      if (pickedBySlot.get(slot.id)?.has(inv.id)) return false
-      const slotTaken = Object.entries(cells).some(([key, chips]) => {
-        const [kSlot] = key.split('::')
-        return kSlot === slot.id && chips.some((c) => c.invigilator_id === inv.id)
-      })
-      if (slotTaken) return false
-      return true
-    })
-    const sorted = [...candidates].sort((a, b) => {
-      const aAvail = a.availability === 'Available' ? 0 : 1
-      const bAvail = b.availability === 'Available' ? 0 : 1
-      if (aAvail !== bAvail) return aAvail - bAvail
-      const aMatch = entry && entry.department_id === a.department_id ? 0 : 1
-      const bMatch = entry && entry.department_id === b.department_id ? 0 : 1
-      if (aMatch !== bMatch) return aMatch - bMatch
-      const al = loadOf(a)
-      const bl = loadOf(b)
-      if (al !== bl) return al - bl
-      return a.name.localeCompare(b.name)
-    })
-    return sorted[0] ?? null
-  }
-
   const runAutoAssign = async () => {
-    if (autoRunning) return
-    const plan: Array<{ cellKey: string; invigilator: DirectoryInvigilator }> = []
-    const pickedBySlot = new Map<string, Set<string>>()
-    const planCounts = new Map<string, number>()
-    const maxSeats = 12
-
-    for (const slot of slots) {
-      for (const room of rooms) {
-        if (plan.length >= maxSeats) break
-        const key = cellKeyOf(slot.id, room.id)
-        const entry = entryByCell[key]
-        const chips = cells[key] ?? []
-        const need = Math.max(0, (entry ? 2 : 1) - chips.length)
-        for (let n = 0; n < need; n++) {
-          if (plan.length >= maxSeats) break
-          const chosen = pickBestInvigilator(slot, entry, pickedBySlot, planCounts)
-          if (!chosen) break
-          pickedBySlot.set(slot.id, new Set([...(pickedBySlot.get(slot.id) ?? []), chosen.id]))
-          planCounts.set(chosen.id, (planCounts.get(chosen.id) ?? 0) + 1)
-          plan.push({ cellKey: key, invigilator: chosen })
-        }
-      }
-    }
-
-    if (plan.length === 0) {
-      toast({ variant: 'info', title: 'Nothing to auto-assign', description: 'Every seat is already filled or no invigilators match the pool filters.' })
-      return
-    }
-
+    if (autoRunning || !catalog?.cycle) return
     setAutoRunning(true)
     setShowReview(false)
-    setAutoProgress({ done: 0, total: plan.length })
-    for (let i = 0; i < plan.length; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 240))
-      const { cellKey, invigilator } = plan[i]
-      setBoard((prev) => {
-        const day = prev[selectedDate] ?? emptyDay()
-        return {
-          ...prev,
-          [selectedDate]: {
-            ...day,
-            committed: false,
-            pending: {
-              ...day.pending,
-              [cellKey]: [
-                ...(day.pending[cellKey] ?? []),
-                {
-                  id: chipId(),
-                  invigilator_id: invigilator.id,
-                  name: invigilator.name,
-                  availability: invigilator.availability,
-                  status: 'assigned' as const,
-                  source: 'auto' as const,
-                },
-              ],
-            },
+    try {
+      const plan = await proposeAutoAssign({ exam_cycle_id: catalog.cycle.id, date: selectedDate })
+      setAutoPlan(plan)
+
+      if (plan.proposals.length === 0) {
+        toast({
+          variant: 'info',
+          title: 'Nothing to auto-assign',
+          description: 'Every exam session on this day is already fully staffed.',
+        })
+        return
+      }
+
+      const pending: Record<string, BoardChip[]> = {}
+      for (const p of plan.proposals) {
+        const key = cellKeyOf(p.time_slot_id, p.room_id)
+        const full = roster.find((r) => r.id === p.invigilator_id)
+        pending[key] = [
+          ...(pending[key] ?? []),
+          {
+            id: `auto-${p.id}`,
+            invigilator_id: p.invigilator_id,
+            name: p.invigilator_name,
+            availability: full?.availability ?? 'Available',
+            status: 'assigned' as const,
+            source: 'auto' as const,
           },
-        }
+        ]
+      }
+      updateDay((d) => ({ pending: { ...d.pending, ...pending } }))
+      setShowReview(true)
+      toast({
+        variant: 'success',
+        title: 'Auto-assign ready',
+        description: `${plan.proposals.length} proposal(s) staged for ${formatDateLabel(selectedDate)}. Nothing is written until you accept them.`,
+        duration: 6000,
       })
-      setAutoProgress({ done: i + 1, total: plan.length })
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Auto-assign failed',
+        description: apiMessage(err, 'Unable to propose auto-assignments.'),
+        duration: 6000,
+      })
+    } finally {
+      setAutoRunning(false)
     }
-    setAutoRunning(false)
-    setShowReview(true)
-    toast({
-      variant: 'success',
-      title: 'Auto-assign complete',
-      description: `Mock matcher placed ${plan.length} invigilator(s). Review before confirming.`,
-    })
   }
 
-  const acceptAuto = () => {
-    updateDay((d) => {
-      const pending: Record<string, BoardChip[]> = {}
-      for (const [k, chips] of Object.entries(d.pending)) {
-        pending[k] = chips.map((c) => (c.source === 'auto' ? { ...c, source: 'manual' as const } : c))
+  const commitAuto = async () => {
+    if (!autoPlan || autoPlan.proposals.length === 0) return
+    setAutoRunning(true)
+    setConfirmOpen(false)
+    try {
+      const result = await commitAutoAssign(
+        autoPlan.proposals.map((p) => ({ schedule_entry_id: p.schedule_entry_id, invigilator_id: p.invigilator_id })),
+      )
+      updateDay(() => emptyDay())
+      setShowReview(false)
+      setAutoPlan(null)
+      await reloadData()
+      notifyScheduleChanged()
+      if (result.skipped > 0) {
+        toast({
+          variant: 'warning',
+          title: `${result.committed} committed, ${result.skipped} skipped`,
+          description: result.skipped_reasons.map((r) => r.reason).join(', '),
+          duration: 6000,
+        })
+      } else {
+        toast({
+          variant: 'success',
+          title: 'Auto-assignments committed',
+          description: `${result.committed} invigilator(s) recorded as real assignment rows.`,
+        })
       }
-      return { ...d, pending }
-    })
-    setShowReview(false)
-    toast({ variant: 'success', title: 'Auto-assignments accepted', description: 'They are still unconfirmed — press Confirm assignments to record them.' })
+    } catch (err) {
+      toast({
+        variant: 'danger',
+        title: 'Commit failed',
+        description: apiMessage(err, 'Unable to commit the auto-assignments.'),
+        duration: 6000,
+      })
+    } finally {
+      setAutoRunning(false)
+    }
   }
 
   const clearAuto = () => {
@@ -596,39 +613,11 @@ export function AssignmentBoard() {
         const kept = chips.filter((c) => c.source !== 'auto')
         if (kept.length) pending[k] = kept
       }
-      return { ...d, pending }
+      return { pending }
     })
     setShowReview(false)
-    toast({ variant: 'info', title: 'Auto-assignments cleared', description: 'The mock matcher placements were removed.' })
-  }
-
-  const resetDay = () => {
-    updateDay(() => emptyDay())
-    setShowReview(false)
-    setArmedId('')
-  }
-
-  const confirmAssignments = () => {
-    const count = unconfirmed.length
-    updateDay((d) => ({
-      committed: true,
-      removed: d.removed,
-      pending: Object.fromEntries(
-        Object.entries(d.pending).map(([k, chips]) => [
-          k,
-          chips.map((c) => ({ ...c, status: 'confirmed' as const })),
-        ]),
-      ),
-    }))
-    setConfirmOpen(false)
-    setShowReview(false)
-    setArmedId('')
-    toast({
-      variant: 'success',
-      title: 'Assignments confirmed',
-      description: `${count} invigilator(s) recorded for ${formatDateLabel(selectedDate)} (mock). Mapped as invigilator_assignments rows — ready to swap to the real API.`,
-      duration: 6000,
-    })
+    setAutoPlan(null)
+    toast({ variant: 'info', title: 'Auto-assignments cleared', description: 'No rows were written.' })
   }
 
   if (loadError) {
@@ -662,19 +651,21 @@ export function AssignmentBoard() {
   const filledSeats = Object.values(cells).reduce((sum, chips) => sum + chips.length, 0)
   const totalCells = slots.length * rooms.length
   const dayEntryCount = entries.filter((e) => e.date === selectedDate).length
+  const proposalCount = autoPlan?.proposals.length ?? staged.length
 
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveInv(null)}>
       <div className="space-y-4">
-        {showReview && (
+        {showReview && autoPlan && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gold/40 bg-gold/10 px-4 py-3 shadow-soft animate-[modalIn_220ms_ease-out]">
             <div className="flex min-w-0 items-start gap-3">
               <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-gold-dark" aria-hidden="true" />
               <div className="min-w-0">
                 <p className="text-sm font-bold text-ink">Review auto-assignments</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  The mock matcher placed {autoProgress.done} invigilator(s). Accept them, adjust individual cells,
-                  or clear them before confirming.
+                  The auto-assigner proposed {autoPlan.proposals.length} invigilator(s) for{' '}
+                  {formatDateLabel(selectedDate)}. Accept them to write real assignment rows, adjust individual
+                  cells, or clear them — nothing is persisted until you commit.
                 </p>
               </div>
             </div>
@@ -682,8 +673,8 @@ export function AssignmentBoard() {
               <Button variant="secondary" size="sm" onClick={clearAuto}>
                 Clear auto-assignments
               </Button>
-              <Button variant="primary" size="sm" onClick={acceptAuto}>
-                <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Accept all
+              <Button variant="primary" size="sm" onClick={() => setConfirmOpen(true)} disabled={autoRunning}>
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Accept all &amp; commit
               </Button>
             </div>
           </div>
@@ -713,34 +704,23 @@ export function AssignmentBoard() {
             <Badge variant="outline">
               {dayEntryCount} exam{dayEntryCount === 1 ? '' : 's'} · {formatDateLabel(selectedDate)}
             </Badge>
-            <Badge variant={unconfirmed.length ? 'gold' : 'outline'}>{unconfirmed.length} unconfirmed</Badge>
+            <Badge variant={staged.length ? 'gold' : 'outline'}>{staged.length} to commit</Badge>
             <Badge variant="outline">
               {filledSeats}/{totalCells} seats filled
             </Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={autoRunning || (dayState.removed.length === 0 && unconfirmed.length === 0)}
-              onClick={resetDay}
-            >
-              Reset day edits
-            </Button>
             <Button variant="secondary" size="sm" onClick={runAutoAssign} disabled={autoRunning}>
               {autoRunning ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  Filling {autoProgress.done}/{autoProgress.total}…
+                  Auto-assigning…
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" aria-hidden="true" /> Auto-assign remaining
                 </>
               )}
-            </Button>
-            <Button size="sm" onClick={() => setConfirmOpen(true)} disabled={autoRunning || unconfirmed.length === 0}>
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Confirm assignments
             </Button>
           </div>
         </div>
@@ -781,7 +761,7 @@ export function AssignmentBoard() {
                       shaking={shakingCell === key}
                       onCellClick={() => {
                         if (armedInv) {
-                          attemptAssign(armedInv, key)
+                          void attemptAssign(armedInv, key)
                           setArmedId('')
                         }
                       }}
@@ -863,18 +843,20 @@ export function AssignmentBoard() {
         <ConfirmDialog
           open={confirmOpen}
           onClose={() => setConfirmOpen(false)}
-          onConfirm={confirmAssignments}
-          title="Confirm these invigilator assignments?"
+          onConfirm={() => void commitAuto()}
+          title="Accept these auto-assignments?"
           description={
-            unconfirmed.length
-              ? `${unconfirmed.length} assignment(s) map to invigilator_assignments rows (schedule_entry_id, invigilator_id, status = 'assigned'). ${unconfirmed
+            autoPlan && autoPlan.proposals.length
+              ? `${autoPlan.proposals.length} invigilator(s) will be recorded as real assignment rows for ${formatDateLabel(
+                  selectedDate,
+                )}. ${autoPlan.proposals
                   .slice(0, 6)
-                  .map((r) => `· ${r.chip.name} → ${cellLabel(r.cellKey)}`)
-                  .join(' ')}${unconfirmed.length > 6 ? ` ·…and ${unconfirmed.length - 6} more` : ''}`
+                  .map((p) => `· ${p.invigilator_name} → ${p.course_code} · ${p.time_slot_label} · ${p.room_name}`)
+                  .join(' ')}${autoPlan.proposals.length > 6 ? ` ·…and ${autoPlan.proposals.length - 6} more` : ''}`
               : undefined
           }
-          confirmLabel={`Confirm ${unconfirmed.length} assignment(s)`}
-          cancelLabel="Keep editing"
+          confirmLabel={`Commit ${proposalCount} assignment(s)`}
+          cancelLabel="Keep reviewing"
           variant="primary"
         />
       </div>

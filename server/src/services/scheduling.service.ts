@@ -54,7 +54,7 @@ export interface ApiScheduleEntry {
   room_capacity: number
   enrolled_count: number
   status: 'scheduled' | 'needs_review'
-  invigilators: Array<{ id: string; name: string }>
+  invigilators: Array<{ id: string; name: string; assignment_id: string; status: string }>
   created_by: string
   created_at: string
 }
@@ -140,6 +140,8 @@ async function toApiEntry(row: {
   time_slot: { id: string; label: string }
   room: { id: string; name: string; capacity: number }
   invigilator_assignments: Array<{
+    id: string
+    status: string
     invigilator: { id: string; user: { name: string } }
   }>
 }): Promise<ApiScheduleEntry> {
@@ -166,6 +168,8 @@ async function toApiEntry(row: {
     invigilators: row.invigilator_assignments.map((a) => ({
       id: a.invigilator.id,
       name: a.invigilator.user.name,
+      assignment_id: a.id,
+      status: a.status,
     })),
     created_by: row.created_by,
     created_at: row.created_at.toISOString(),

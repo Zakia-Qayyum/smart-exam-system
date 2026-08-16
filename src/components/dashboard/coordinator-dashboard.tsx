@@ -10,6 +10,7 @@ import { toast } from '@/components/ui/toast-store'
 import { mockCoordinatorDashboard } from '@/config/mock-data'
 import { roleLabels } from '@/config/roles'
 import { fetchClashes } from '@/services/scheduling-service'
+import { useInvigilatorsStore } from '@/stores/invigilators-store'
 import { onScheduleChanged } from '@/lib/schedule-sync'
 import { firstName, kindIcon, kindTone, timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
@@ -318,6 +319,8 @@ function DashboardSkeleton() {
 export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true)
   const [pendingClashes, setPendingClashes] = useState<number | null>(null)
+  const invigilators = useInvigilatorsStore((s) => s.invigilators)
+  const invigilatorsLoaded = useInvigilatorsStore((s) => s.loaded)
   const data = mockCoordinatorDashboard()
 
   const loadClashKpi = useCallback(() => {
@@ -339,16 +342,34 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
   // Keep the open-clash KPI in step with the Clash Center / Scheduling Engine.
   useEffect(() => onScheduleChanged(loadClashKpi), [loadClashKpi])
 
+  // Real invigilation numbers for the "Invigilators Assigned" KPI. The board
+  // refreshes this store after every assignment write, so this stays in step.
+  useEffect(() => {
+    if (!invigilatorsLoaded) void useInvigilatorsStore.getState().refresh()
+  }, [invigilatorsLoaded])
+
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 700)
     return () => clearTimeout(timer)
   }, [])
 
-  const kpis = data.kpis.map((kpi) =>
-    kpi.id === 'kpi-clashes' && pendingClashes !== null
-      ? { ...kpi, value: String(pendingClashes), hint: 'open clashes in the current cycle' }
-      : kpi,
-  )
+  const invigilatorsAssigned = invigilators.reduce((sum, i) => sum + i.assigned_count, 0)
+  const invigilatorsCapacity = invigilators.reduce((sum, i) => sum + i.max_assignments_per_cycle, 0)
+
+  const kpis = data.kpis.map((kpi) => {
+    if (kpi.id === 'kpi-clashes' && pendingClashes !== null) {
+      return { ...kpi, value: String(pendingClashes), hint: 'open clashes in the current cycle' }
+    }
+    if (kpi.id === 'kpi-invigilators' && invigilatorsLoaded && invigilatorsCapacity > 0) {
+      return {
+        ...kpi,
+        value: `${invigilatorsAssigned}/${invigilatorsCapacity}`,
+        hint: 'duty slots filled',
+        fraction: { current: invigilatorsAssigned, total: invigilatorsCapacity },
+      }
+    }
+    return kpi
+  })
 
   if (loading) {
     return (
