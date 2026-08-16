@@ -2,6 +2,7 @@ import { Router, type Request, type RequestHandler, type Response, type NextFunc
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requirePermission } from '../middleware/require-permission.js'
 import {
   commitBulkImport,
   createInvigilator,
@@ -18,7 +19,7 @@ export const invigilatorsRouter = Router()
 invigilatorsRouter.use(requireAuth)
 
 const READ_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator', 'hod'] as const
-const WRITE_ROLES = ['admin', 'exam-coordinator'] as const
+const WRITE_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator'] as const
 
 const emailPattern = /^\S+@\S+\.\S+$/
 const AVAILABILITY = new Set<InvigilatorAvailability>(['Available', 'Busy', 'On leave'])
@@ -80,6 +81,7 @@ invigilatorsRouter.get(
 invigilatorsRouter.post(
   '/',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(createBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof createBodySchema>
@@ -94,6 +96,7 @@ invigilatorsRouter.post(
 invigilatorsRouter.post(
   '/bulk-import/preview',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(bulkBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof bulkBodySchema>
@@ -108,6 +111,7 @@ invigilatorsRouter.post(
 invigilatorsRouter.post(
   '/bulk-import/commit',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(bulkBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof bulkBodySchema>
@@ -130,6 +134,7 @@ invigilatorsRouter.get(
 invigilatorsRouter.put(
   '/:id',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(updateBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof updateBodySchema>

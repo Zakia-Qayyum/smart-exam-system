@@ -2,6 +2,7 @@ import { Router, type RequestHandler, type Request, type Response, type NextFunc
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requirePermission } from '../middleware/require-permission.js'
 import { schedulingService } from '../services/scheduling.service.js'
 import { clashService } from '../services/clash-detection.service.js'
 import { listUnassignedMatrix } from '../services/invigilator-assignments.service.js'
@@ -13,7 +14,7 @@ export const schedulingRouter = Router()
 schedulingRouter.use(requireAuth)
 
 const READ_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator', 'hod'] as const
-const WRITE_ROLES = ['admin', 'exam-coordinator'] as const
+const WRITE_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator'] as const
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 
@@ -51,6 +52,7 @@ const clashCheckSchema = z.object({
 schedulingRouter.post(
   '/clash-check',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   validateBody(clashCheckSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof clashCheckSchema>
@@ -70,6 +72,7 @@ schedulingRouter.post(
 schedulingRouter.post(
   '/schedule-entries',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   validateBody(entryBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof entryBodySchema>
@@ -86,6 +89,7 @@ schedulingRouter.post(
 schedulingRouter.put(
   '/schedule-entries/:id',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   validateBody(entryBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof entryBodySchema>
@@ -102,6 +106,7 @@ schedulingRouter.put(
 schedulingRouter.delete(
   '/schedule-entries/:id',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   async (req, res) => {
     await schedulingService.deleteEntry(String(req.params.id), res.locals.user.id)
     res.json({ status: 'ok' })
@@ -160,6 +165,7 @@ schedulingRouter.get(
 schedulingRouter.post(
   '/generate',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   validateBody(generateBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof generateBodySchema>
@@ -172,6 +178,7 @@ schedulingRouter.post(
 schedulingRouter.get(
   '/generate/:jobId/status',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_schedule_entries'),
   async (req, res) => {
     const job = schedulingService.getGenerateJob(String(req.params.jobId))
     if (!job) {

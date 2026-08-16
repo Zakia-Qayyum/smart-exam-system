@@ -9,6 +9,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requirePermission } from '../middleware/require-permission.js'
 import {
   createAssignment,
   deleteAssignment,
@@ -20,7 +21,7 @@ export const invigilatorAssignmentsRouter = Router()
 
 invigilatorAssignmentsRouter.use(requireAuth)
 
-const WRITE_ROLES = ['admin', 'exam-coordinator'] as const
+const WRITE_ROLES = ['admin', 'exam-coordinator', 'dept-coordinator'] as const
 
 const assignmentStatusSchema = z.enum(['assigned', 'confirmed', 'declined'])
 
@@ -54,6 +55,7 @@ const commitBodySchema = z.object({
 invigilatorAssignmentsRouter.post(
   '/',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(createBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof createBodySchema>
@@ -66,6 +68,7 @@ invigilatorAssignmentsRouter.post(
 invigilatorAssignmentsRouter.delete(
   '/:id',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   async (req, res) => {
     const assignment = await deleteAssignment(String(req.params.id), res.locals.user.id)
     res.json({ status: 'ok', assignment })
@@ -78,6 +81,7 @@ invigilatorAssignmentsRouter.delete(
 invigilatorAssignmentsRouter.post(
   '/auto-assign',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(autoAssignBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof autoAssignBodySchema>
@@ -90,6 +94,7 @@ invigilatorAssignmentsRouter.post(
 invigilatorAssignmentsRouter.post(
   '/auto-assign/commit',
   requireRole(...WRITE_ROLES),
+  requirePermission('manage_invigilators'),
   validateBody(commitBodySchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof commitBodySchema>

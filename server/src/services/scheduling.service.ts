@@ -597,6 +597,15 @@ async function generateSchedule(options: { examCycleId?: string; createdBy: stri
         created_by: options.createdBy,
       })),
     })
+    await tx.auditLog.create({
+      data: {
+        action_type: 'schedule.generate',
+        target_type: 'exam_cycle',
+        target_id: cycle.id,
+        performed_by: options.createdBy,
+        meta: { entries_created: assignments.length },
+      },
+    })
   })
 
   const scan = await clashService.scanFullCycle(cycle.id)

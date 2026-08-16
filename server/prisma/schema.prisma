@@ -22,6 +22,7 @@ model User {
   status                String    @default("active") // active | disabled
   must_change_password  Boolean   @default(false)
   mfa_enabled           Boolean   @default(true)
+  permissions           Json? // granular dept-coordinator permission toggles (Step 22)
   failed_login_attempts Int       @default(0)
   locked_until          DateTime?
   password_changed_at   DateTime?

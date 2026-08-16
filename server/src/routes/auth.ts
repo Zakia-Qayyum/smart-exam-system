@@ -491,6 +491,14 @@ authRouter.post(
       await prisma.passwordResetToken.create({
         data: { user_id: user.id, token_hash: sha256(raw), expires_at: expiresAt },
       })
+      await prisma.auditLog.create({
+        data: {
+          action_type: 'auth.password_reset_requested',
+          target_type: 'user',
+          target_id: user.id,
+          performed_by: user.id,
+        },
+      })
       logger.info({ to: email }, `[reset:console] password reset link: /reset-password?token=${raw}`)
     }
     res.json({ status: 'ok' })
@@ -515,13 +523,21 @@ authRouter.post(
       return
     }
 
-    await prisma.$transaction([
-      prisma.user.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: record.user_id },
         data: { password_hash: await hashPassword(newPassword), must_change_password: false, password_changed_at: new Date() },
-      }),
-      prisma.passwordResetToken.update({ where: { id: record.id }, data: { used_at: new Date() } }),
-    ])
+      })
+      await tx.passwordResetToken.update({ where: { id: record.id }, data: { used_at: new Date() } })
+      await tx.auditLog.create({
+        data: {
+          action_type: 'auth.password_reset',
+          target_type: 'user',
+          target_id: record.user_id,
+          performed_by: record.user_id,
+        },
+      })
+    })
     res.json({ status: 'ok' })
   },
 )
@@ -556,7 +572,17 @@ authRouter.delete(
     return session.user_id
   }),
   async (req, res) => {
-    await prisma.refreshToken.update({ where: { id: String(req.params.id) }, data: { revoked_at: new Date() } })
+    await prisma.$transaction([
+      prisma.refreshToken.update({ where: { id: String(req.params.id) }, data: { revoked_at: new Date() } }),
+      prisma.auditLog.create({
+        data: {
+          action_type: 'auth.session_revoke',
+          target_type: 'session',
+          target_id: String(req.params.id),
+          performed_by: res.locals.user.id,
+        },
+      }),
+    ])
     res.json({ status: 'ok' })
   },
 )
