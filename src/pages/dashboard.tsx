@@ -22,14 +22,14 @@ const statTone: Record<DashboardStat['tone'], string> = {
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user)
-  const byRole = useNotificationsStore((s) => s.byRole)
+  const items = useNotificationsStore((s) => s.items)
   if (!user) return null
 
   if (user.role === 'exam-coordinator') return <ExamCoordinatorDashboard user={user} />
 
   const stats = mockStats(user.role)
   const quickActions = navByRole[user.role].slice(0, 4)
-  const recent = [...(byRole[user.role] ?? [])]
+  const recent = [...items]
     .sort((a, b) => a.minutesAgo - b.minutesAgo)
     .slice(0, 4)
 

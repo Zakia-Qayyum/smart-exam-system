@@ -1,11 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCheck, FilterX, Inbox } from 'lucide-react'
+import { CheckCheck, FilterX, Inbox, Loader2, RefreshCw } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationsStore } from '@/stores/notifications-store'
 import { kindIcon, kindTint, timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
@@ -85,18 +84,24 @@ function Pill({ active, onClick, children }: PillProps) {
 }
 
 export function NotificationsPage() {
-  const role = useAuthStore((s) => s.user?.role)
-  const byRole = useNotificationsStore((s) => s.byRole)
+  const items = useNotificationsStore((s) => s.items)
+  const unreadCount = useNotificationsStore((s) => s.unreadCount)
+  const loading = useNotificationsStore((s) => s.loading)
+  const error = useNotificationsStore((s) => s.error)
+  const refresh = useNotificationsStore((s) => s.refresh)
   const markRead = useNotificationsStore((s) => s.markRead)
   const markAllRead = useNotificationsStore((s) => s.markAllRead)
   const [typeFilter, setTypeFilter] = useState<NotificationKind | 'all'>('all')
   const [readFilter, setReadFilter] = useState<ReadFilter>('all')
 
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
   const notifications = useMemo(
-    () => [...(byRole[role ?? 'student'] ?? [])].sort((a, b) => a.minutesAgo - b.minutesAgo),
-    [byRole, role],
+    () => [...items].sort((a, b) => a.minutesAgo - b.minutesAgo),
+    [items],
   )
-  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
 
   const filtered = useMemo(
     () =>
@@ -125,22 +130,39 @@ export function NotificationsPage() {
     setReadFilter('all')
   }
 
-  if (!role) return null
-
   return (
     <div className="mx-auto max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-ink">Notifications</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}.` : 'You\u2019re all caught up.'}
+            {loading
+              ? 'Refreshing…'
+              : unreadCount > 0
+                ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}.`
+                : 'You\u2019re all caught up.'}
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => markAllRead(role)} disabled={unreadCount === 0}>
-          <CheckCheck className="h-4 w-4" aria-hidden="true" />
-          Mark all as read
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loading}>
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden="true" />
+            Refresh
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void markAllRead()} disabled={unreadCount === 0}>
+            <CheckCheck className="h-4 w-4" aria-hidden="true" />
+            Mark all as read
+          </Button>
+        </div>
       </div>
+
+      {error && (
+        <Card className="mt-6 border-danger/40">
+          <CardContent className="p-4">
+            <p className="text-sm font-semibold text-danger">Couldn&apos;t load notifications.</p>
+            <p className="mt-1 text-xs text-ink-muted">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-6">
         <CardContent className="p-4">
@@ -172,7 +194,7 @@ export function NotificationsPage() {
         </CardContent>
       </Card>
 
-      {notifications.length === 0 ? (
+      {!loading && notifications.length === 0 ? (
         <Card className="mt-4">
           <CardContent className="p-4">
             <EmptyState
@@ -182,7 +204,7 @@ export function NotificationsPage() {
             />
           </CardContent>
         </Card>
-      ) : filtered.length === 0 ? (
+      ) : !loading && filtered.length === 0 ? (
         <Card className="mt-4">
           <CardContent className="p-4">
             <EmptyState
@@ -195,6 +217,15 @@ export function NotificationsPage() {
                 </Button>
               }
             />
+          </CardContent>
+        </Card>
+      ) : loading && notifications.length === 0 ? (
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-ink-muted">
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+              Loading notifications…
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -214,7 +245,7 @@ export function NotificationsPage() {
                     <li key={n.id} className="border-b border-line/70 last:border-b-0">
                       <Link
                         to={n.link}
-                        onMouseDown={() => markRead(role, n.id)}
+                        onMouseDown={() => void markRead(n.id)}
                         className="flex items-start gap-3 rounded-md px-3 py-3.5 transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                       >
                         <span

@@ -31,7 +31,7 @@ export interface MockNotification {
   link: string
 }
 
-export type TickerKind = 'clash' | 'published' | 'assignment' | 'info'
+export type TickerKind = NotificationKind
 
 export interface TickerItem {
   id: string
@@ -738,4 +738,25 @@ export interface ApiAdminUser {
   mfa_enabled: boolean
   must_change_password: boolean
   last_login_at: string | null
+}
+
+// ── Notifications (Step 25 API) ────────────────────────────────────────────
+
+export interface ApiNotification {
+  id: string
+  type: NotificationKind
+  title: string
+  body: string | null
+  link: string | null
+  read: boolean
+  read_at: string | null
+  created_at: string
+}
+
+export interface ApiNotificationList {
+  notifications: ApiNotification[]
+  total: number
+  unread_count: number
+  page: number
+  page_size: number
 }

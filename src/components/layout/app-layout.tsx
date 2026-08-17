@@ -5,10 +5,33 @@ import { Sidebar } from './sidebar'
 import { AnnouncementTicker } from './announcement-ticker'
 import { SessionTimeoutModal } from './session-timeout-modal'
 import { useAuthStore } from '@/stores/auth-store'
+import { useNotificationsStore } from '@/stores/notifications-store'
 import { useSessionTimeout } from '@/lib/use-session-timeout'
 import { toast } from '@/components/ui/toast-store'
 
 const SIDEBAR_KEY = 'ses.sidebarCollapsed'
+
+/**
+ * Keep the bell badge, ticker and Notifications Center live while signed in:
+ * refresh the feed on mount, every 30s, and whenever the tab regains focus so
+ * events raised in other sessions show up in this one.
+ */
+function useNotificationsPolling(intervalMs = 30_000) {
+  const userId = useAuthStore((s) => s.user?.id)
+  const refresh = useNotificationsStore((s) => s.refresh)
+
+  useEffect(() => {
+    if (!userId) return
+    void refresh()
+    const id = window.setInterval(() => void refresh(), intervalMs)
+    const onFocus = () => void refresh()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [userId, refresh, intervalMs])
+}
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user)
@@ -29,6 +52,8 @@ export function AppLayout() {
       /* ignore */
     }
   }, [collapsed])
+
+  useNotificationsPolling()
 
   const session = useSessionTimeout(() => {
     toast({

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, CheckCheck } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
@@ -8,8 +8,10 @@ import { useDismiss } from '@/lib/use-dismiss'
 import { cn } from '@/lib/utils'
 
 export function NotificationsDropdown() {
-  const role = useAuthStore((s) => s.user?.role)
-  const byRole = useNotificationsStore((s) => s.byRole)
+  const user = useAuthStore((s) => s.user)
+  const items = useNotificationsStore((s) => s.items)
+  const unreadCount = useNotificationsStore((s) => s.unreadCount)
+  const refresh = useNotificationsStore((s) => s.refresh)
   const markRead = useNotificationsStore((s) => s.markRead)
   const markAllRead = useNotificationsStore((s) => s.markAllRead)
   const [open, setOpen] = useState(false)
@@ -17,10 +19,15 @@ export function NotificationsDropdown() {
 
   useDismiss(wrapRef, () => setOpen(false))
 
-  if (!role) return null
+  // Fetch fresh whenever the bell is opened so events from other sessions
+  // (publish, assignments, overrides) show up immediately.
+  useEffect(() => {
+    if (open) void refresh()
+  }, [open, refresh])
 
-  const notifications = byRole[role] ?? []
-  const unreadCount = notifications.filter((n) => !n.read).length
+  if (!user) return null
+
+  const notifications = items
   const latest = [...notifications].sort((a, b) => a.minutesAgo - b.minutesAgo).slice(0, 5)
 
   return (
@@ -46,7 +53,7 @@ export function NotificationsDropdown() {
             {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={() => markAllRead(role)}
+                onClick={() => void markAllRead()}
                 className="flex items-center gap-1 text-xs font-semibold text-navy hover:text-navy-deep focus-visible:outline-none"
               >
                 <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -55,49 +62,53 @@ export function NotificationsDropdown() {
             )}
           </div>
 
-          <ul className="max-h-96 overflow-y-auto">
-            {latest.map((n) => {
-              const Icon = kindIcon[n.kind]
-              return (
-                <li key={n.id} className="border-b border-line/70 last:border-b-0">
-                  <Link
-                    to={n.link}
-                    onMouseDown={() => markRead(role, n.id)}
-                    className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface"
-                  >
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface',
-                      )}
+          {notifications.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-ink-muted">No notifications yet.</p>
+          ) : (
+            <ul className="max-h-96 overflow-y-auto">
+              {latest.map((n) => {
+                const Icon = kindIcon[n.kind]
+                return (
+                  <li key={n.id} className="border-b border-line/70 last:border-b-0">
+                    <Link
+                      to={n.link}
+                      onMouseDown={() => void markRead(n.id)}
+                      className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface"
                     >
-                      <Icon className={cn('h-4 w-4', kindTone[n.kind])} aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'truncate text-sm font-semibold',
-                            n.read ? 'text-ink-muted' : 'text-ink',
-                          )}
-                        >
-                          {n.title}
-                        </span>
-                        {!n.read && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-gold-dark" />
+                      <span
+                        className={cn(
+                          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface',
                         )}
+                      >
+                        <Icon className={cn('h-4 w-4', kindTone[n.kind])} aria-hidden="true" />
                       </span>
-                      <span className="mt-0.5 line-clamp-2 block text-xs leading-4 text-ink-muted">
-                        {n.body}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'truncate text-sm font-semibold',
+                              n.read ? 'text-ink-muted' : 'text-ink',
+                            )}
+                          >
+                            {n.title}
+                          </span>
+                          {!n.read && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-gold-dark" />
+                          )}
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 block text-xs leading-4 text-ink-muted">
+                          {n.body}
+                        </span>
+                        <span className="mt-1 block text-[11px] font-medium text-ink-muted/70">
+                          {timeAgo(n.minutesAgo)}
+                        </span>
                       </span>
-                      <span className="mt-1 block text-[11px] font-medium text-ink-muted/70">
-                        {timeAgo(n.minutesAgo)}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
 
           <div className="border-t border-line p-2">
             <Link

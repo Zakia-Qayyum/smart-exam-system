@@ -1,5 +1,5 @@
-import { useAuthStore } from '@/stores/auth-store'
-import { mockTicker } from '@/config/mock-data'
+import { useMemo } from 'react'
+import { useNotificationsStore } from '@/stores/notifications-store'
 import { kindIcon, kindTone } from '@/lib/visuals'
 import type { TickerItem } from '@/lib/types'
 
@@ -18,12 +18,32 @@ function TickerItemView({ item }: { item: TickerItem }) {
   )
 }
 
+/**
+ * Announcement ticker driven by the signed-in user's real notification feed:
+ * the newest unread items scroll across the header. Empty feeds fall back to a
+ * neutral "all caught up" line instead of a blank bar.
+ */
 export function AnnouncementTicker() {
-  const role = useAuthStore((s) => s.user?.role)
-  if (!role) return null
+  const items = useNotificationsStore((s) => s.items)
 
-  const items = mockTicker(role)
-  const loop = [...items, ...items]
+  const ticker = useMemo<TickerItem[]>(() => {
+    const derived = items
+      .slice()
+      .sort((a, b) => a.minutesAgo - b.minutesAgo)
+      .slice(0, 6)
+      .map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        text: n.body ? `${n.title} — ${n.body}` : n.title,
+        isNew: !n.read,
+      }))
+    if (derived.length === 0) {
+      return [{ id: 'empty', kind: 'info', text: 'You\u2019re all caught up — no announcements right now.', isNew: false }]
+    }
+    return derived
+  }, [items])
+
+  const loop = [...ticker, ...ticker]
 
   return (
     <div className="flex h-9 items-stretch overflow-hidden border-t border-navy-light/40 bg-navy-deep text-white">
