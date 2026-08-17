@@ -18,6 +18,9 @@ import type {
   MockNotification,
   Role,
   TickerItem,
+  MockStudentExam,
+  MockStudentProfile,
+  MockExportRecord,
 } from '@/lib/types'
 
 export interface DemoAccount {
@@ -348,4 +351,83 @@ export function mockCoordinatorDashboard(): {
     clashes,
     quickActions,
   }
+}
+
+// ── Student Self-Service (Step 27) ────────────────────────────────────────
+
+export function mockStudentProfile(): MockStudentProfile {
+  return {
+    name: 'Fatima Noor',
+    regId: 'AU2024CS042',
+    program: 'BS Computer Science',
+    department: 'Computer Science',
+    photoUrl: '',
+  }
+}
+
+export function mockStudentExams(): MockStudentExam[] {
+  return [
+    { id: 'se-1', date: '2026-08-10', day: 'Monday',    timeSlot: 'Morning',   startTime: '09:00', endTime: '12:00', courseCode: 'CS-201', courseTitle: 'Data Structures',         room: 'Hall A',  seatNo: 15, rollNo: 'AU2024CS042', status: 'confirmed' },
+    { id: 'se-2', date: '2026-08-11', day: 'Tuesday',   timeSlot: 'Morning',   startTime: '09:00', endTime: '12:00', courseCode: 'CS-202', courseTitle: 'Computer Organization',   room: 'Hall B',  seatNo: 22, rollNo: 'AU2024CS042', status: 'confirmed' },
+    { id: 'se-3', date: '2026-08-11', day: 'Tuesday',   timeSlot: 'Afternoon', startTime: '14:00', endTime: '17:00', courseCode: 'MA-201', courseTitle: 'Linear Algebra',           room: 'Hall C',  seatNo: 8,  rollNo: 'AU2024CS042', status: 'needs_review' },
+    { id: 'se-4', date: '2026-08-12', day: 'Wednesday', timeSlot: 'Morning',   startTime: '09:00', endTime: '12:00', courseCode: 'SE-101', courseTitle: 'Software Engineering I',   room: 'Hall A',  seatNo: 31, rollNo: 'AU2024CS042', status: 'confirmed' },
+    { id: 'se-5', date: '2026-08-13', day: 'Thursday',  timeSlot: 'Morning',   startTime: '09:00', endTime: '12:00', courseCode: 'CS-305', courseTitle: 'Database Systems',         room: 'CS Lab 1', seatNo: 5, rollNo: 'AU2024CS042', status: 'confirmed' },
+    { id: 'se-6', date: '2026-08-14', day: 'Friday',    timeSlot: 'Afternoon', startTime: '14:00', endTime: '17:00', courseCode: 'PH-102', courseTitle: 'Applied Physics',          room: 'Hall A',  seatNo: 19, rollNo: 'AU2024CS042', status: 'confirmed' },
+  ]
+}
+
+// ── Reports & Export (Step 27) ────────────────────────────────────────────
+
+export const mockCycles = [
+  { id: 'c1', name: 'Fall-2026', status: 'draft' as const },
+  { id: 'c2', name: 'Spring-2026', status: 'published' as const },
+]
+
+export const mockDepartments = [
+  { id: 'd1', code: 'CS', name: 'Computer Science' },
+  { id: 'd2', code: 'SE', name: 'Software Engineering' },
+  { id: 'd3', code: 'MA', name: 'Mathematics' },
+  { id: 'd4', code: 'PH', name: 'Physics' },
+  { id: 'd5', code: 'EE', name: 'Electrical Engineering' },
+]
+
+export const mockExportTypes = [
+  { value: 'schedule' as const,      label: 'Schedule (CSV)' },
+  { value: 'roll-no-slips' as const, label: 'Roll No Slips (CSV)' },
+  { value: 'invigilators' as const,  label: 'Invigilator Roster (CSV)' },
+  { value: 'audit-log' as const,     label: 'Audit Log (CSV)' },
+]
+
+export function mockDatesheetPreview() {
+  return [
+    { date: '10 Aug 2026', day: 'Monday',    timeSlot: '09:00 – 12:00', courseCode: 'CS-201', courseTitle: 'Data Structures',       room: 'Hall A',  invigilator: 'Usman Tariq' },
+    { date: '10 Aug 2026', day: 'Monday',    timeSlot: '14:00 – 17:00', courseCode: 'SE-101', courseTitle: 'Software Engineering I', room: 'Hall C',  invigilator: 'Aiman Munir' },
+    { date: '11 Aug 2026', day: 'Tuesday',   timeSlot: '09:00 – 12:00', courseCode: 'CS-202', courseTitle: 'Computer Organization',  room: 'Hall B',  invigilator: 'Waqar Khan' },
+    { date: '11 Aug 2026', day: 'Tuesday',   timeSlot: '14:00 – 17:00', courseCode: 'MA-201', courseTitle: 'Linear Algebra',         room: 'Hall C',  invigilator: 'Usman Tariq' },
+    { date: '12 Aug 2026', day: 'Wednesday', timeSlot: '09:00 – 12:00', courseCode: 'CS-305', courseTitle: 'Database Systems',       room: 'CS Lab 1', invigilator: 'Aiman Munir' },
+    { date: '13 Aug 2026', day: 'Thursday',  timeSlot: '09:00 – 12:00', courseCode: 'PH-102', courseTitle: 'Applied Physics',        room: 'Hall A',  invigilator: 'Waqar Khan' },
+    { date: '14 Aug 2026', day: 'Friday',    timeSlot: '14:00 – 17:00', courseCode: 'CS-410', courseTitle: 'Artificial Intelligence', room: 'Hall B',  invigilator: 'Usman Tariq' },
+  ]
+}
+
+export function mockExportHistory(): MockExportRecord[] {
+  return [
+    { id: 'ex-1', type: 'schedule',      label: 'Schedule — Fall-2026',      filename: 'fall-2026-schedule.csv',       generatedAt: '2026-08-15T10:30:00Z', generatedBy: 'Exam Coordinator', rowCount: 32, filters: 'Fall-2026 · All departments' },
+    { id: 'ex-2', type: 'roll-no-slips', label: 'Roll No Slips — CS',        filename: 'cs-roll-no-slips.csv',         generatedAt: '2026-08-14T16:45:00Z', generatedBy: 'Exam Coordinator', rowCount: 120, filters: 'Fall-2026 · Computer Science' },
+    { id: 'ex-3', type: 'invigilators',  label: 'Invigilator Roster — Full',  filename: 'invigilator-roster.csv',       generatedAt: '2026-08-14T09:10:00Z', generatedBy: 'Admin',            rowCount: 45, filters: 'Fall-2026 · All departments' },
+    { id: 'ex-4', type: 'schedule',      label: 'Schedule — Spring-2026',    filename: 'spring-2026-schedule.csv',     generatedAt: '2026-08-12T14:20:00Z', generatedBy: 'Exam Coordinator', rowCount: 28, filters: 'Spring-2026 · All departments' },
+    { id: 'ex-5', type: 'audit-log',     label: 'Audit Log — Aug 1–15',      filename: 'audit-log-aug-1-15.csv',       generatedAt: '2026-08-15T08:00:00Z', generatedBy: 'Admin',            rowCount: 1247, filters: '1 Aug – 15 Aug 2026' },
+  ]
+}
+
+export function mockCsvPreview(): Array<Record<string, string>> {
+  return [
+    { Date: '2026-08-10', Day: 'Monday',    Time: '09:00–12:00', Course: 'CS-201', Title: 'Data Structures',       Room: 'Hall A',  Dept: 'CS', Enrolled: '45' },
+    { Date: '2026-08-10', Day: 'Monday',    Time: '14:00–17:00', Course: 'SE-101', Title: 'Software Engineering I', Room: 'Hall C',  Dept: 'SE', Enrolled: '38' },
+    { Date: '2026-08-11', Day: 'Tuesday',   Time: '09:00–12:00', Course: 'CS-202', Title: 'Computer Organization',  Room: 'Hall B',  Dept: 'CS', Enrolled: '52' },
+    { Date: '2026-08-11', Day: 'Tuesday',   Time: '14:00–17:00', Course: 'MA-201', Title: 'Linear Algebra',         Room: 'Hall C',  Dept: 'MA', Enrolled: '30' },
+    { Date: '2026-08-12', Day: 'Wednesday', Time: '09:00–12:00', Course: 'CS-305', Title: 'Database Systems',       Room: 'CS Lab 1', Dept: 'CS', Enrolled: '42' },
+    { Date: '2026-08-13', Day: 'Thursday',  Time: '09:00–12:00', Course: 'PH-102', Title: 'Applied Physics',        Room: 'Hall A',  Dept: 'PH', Enrolled: '55' },
+    { Date: '2026-08-14', Day: 'Friday',    Time: '14:00–17:00', Course: 'CS-410', Title: 'Artificial Intelligence', Room: 'Hall B',  Dept: 'CS', Enrolled: '36' },
+  ]
 }

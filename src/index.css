@@ -168,3 +168,24 @@
     opacity: 0;
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+  }
+  header, nav, .print\:hidden, [data-sidebar], footer, .toaster {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .datesheet-pdf {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .datesheet-pdf table {
+    font-size: 11px;
+  }
+}

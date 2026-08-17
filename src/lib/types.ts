@@ -760,3 +760,43 @@ export interface ApiNotificationList {
   page: number
   page_size: number
 }
+
+// ── Student Self-Service (Step 27 mock) ───────────────────────────────────
+
+export type ExamStatus = 'confirmed' | 'needs_review'
+
+export interface MockStudentExam {
+  id: string
+  date: string
+  day: string
+  timeSlot: string
+  startTime: string
+  endTime: string
+  courseCode: string
+  courseTitle: string
+  room: string
+  seatNo: number
+  rollNo: string
+  status: ExamStatus
+}
+
+export interface MockStudentProfile {
+  name: string
+  regId: string
+  program: string
+  department: string
+  photoUrl: string
+}
+
+export interface MockExportRecord {
+  id: string
+  type: 'schedule' | 'roll-no-slips' | 'invigilators' | 'audit-log'
+  label: string
+  filename: string
+  generatedAt: string
+  generatedBy: string
+  rowCount: number
+  filters: string
+}
+
+export type ExportType = MockExportRecord['type']
