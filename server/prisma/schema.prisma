@@ -1,6 +1,3 @@
-// Smart Exam Scheduling & Invigilation Management System — Prisma schema
-// Field names/casing are documented in server/prisma/SCHEMA.md — mirror them in the frontend.
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,39 +7,34 @@ datasource db {
   provider = "postgresql"
 }
 
-// ── Identity ──────────────────────────────────────────────────────────────
-
 model User {
-  id                    String    @id @default(cuid())
+  id                    String               @id @default(cuid())
   name                  String
-  email                 String    @unique
+  email                 String               @unique
   password_hash         String
-  role                  String // admin | coordinator | dept-coordinator | hod | faculty | invigilator | student
+  role                  String
   department_id         String?
-  status                String    @default("active") // active | disabled
-  must_change_password  Boolean   @default(false)
-  mfa_enabled           Boolean   @default(true)
-  permissions           Json? // granular dept-coordinator permission toggles (Step 22)
-  failed_login_attempts Int       @default(0)
-  locked_until          DateTime?
-  password_changed_at   DateTime?
+  status                String               @default("active")
+  must_change_password  Boolean              @default(false)
+  created_at            DateTime             @default(now())
+  failed_login_attempts Int                  @default(0)
   last_login_at         DateTime?
-  created_at            DateTime  @default(now())
-
-  department            Department?           @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  locked_until          DateTime?
+  mfa_enabled           Boolean              @default(true)
+  password_changed_at   DateTime?
+  permissions           Json?
+  audit_logs            AuditLog[]           @relation("AuditPerformer")
   invigilator           Invigilator?
-  created_entries       ScheduleEntry[]       @relation("EntryCreator")
-  raised_requests       OverrideRequest[]     @relation("OverrideRaisedBy")
-  approved_requests     OverrideRequest[]     @relation("OverrideApprovedBy")
-  audit_logs            AuditLog[]            @relation("AuditPerformer")
   notifications         Notification[]
-  refresh_tokens        RefreshToken[]
+  approved_requests     OverrideRequest[]    @relation("OverrideApprovedBy")
+  raised_requests       OverrideRequest[]    @relation("OverrideRaisedBy")
   password_reset_tokens PasswordResetToken[]
+  refresh_tokens        RefreshToken[]
+  created_entries       ScheduleEntry[]      @relation("EntryCreator")
+  department            Department?          @relation(fields: [department_id], references: [id])
 
   @@map("users")
 }
-
-// ── Auth sessions & password reset ────────────────────────────────────────
 
 model RefreshToken {
   id               String    @id @default(cuid())
@@ -54,8 +46,7 @@ model RefreshToken {
   user_agent       String?
   ip_address       String?
   created_at       DateTime  @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@map("refresh_tokens")
@@ -68,94 +59,85 @@ model PasswordResetToken {
   expires_at DateTime
   used_at    DateTime?
   created_at DateTime  @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@map("password_reset_tokens")
 }
 
 model Department {
-  id         String   @id @default(cuid())
-  name       String   @unique
-  code       String   @unique
-  created_at DateTime @default(now())
-
-  users        User[]
-  programs     Program[]
+  id           String        @id @default(cuid())
+  name         String        @unique
+  code         String        @unique
+  created_at   DateTime      @default(now())
   courses      Course[]
-  students     Student[]
-  rooms        Room[]
   invigilators Invigilator[]
+  programs     Program[]
+  rooms        Room[]
+  students     Student[]
+  users        User[]
 
   @@map("departments")
 }
 
 model Program {
-  id            String @id @default(cuid())
-  department_id String
-  name          String
-  code          String
-  duration_years Int    @default(4)
-
-  department Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  department_id  String
+  name           String
+  code           String
+  duration_years Int        @default(4)
+  department     Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
 
   @@unique([department_id, code])
   @@map("programs")
 }
 
-// ── Academics ─────────────────────────────────────────────────────────────
-
 model Course {
-  id            String @id @default(cuid())
-  course_code   String @unique
+  id            String     @id @default(cuid())
+  course_code   String     @unique
   title         String
   department_id String
-  credit_hours  Int    @default(3)
-
-  department Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
-  sections   Section[]
+  credit_hours  Int        @default(3)
+  department    Department @relation(fields: [department_id], references: [id], onDelete: Cascade)
+  sections      Section[]
 
   @@map("courses")
 }
 
 model Section {
-  id        String @id @default(cuid())
-  course_id String
-  batch     String
-  semester  String
-
-  course           Course             @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  course_id        String
+  batch            String
+  semester         String
   enrollments      Enrollment[]
   schedule_entries ScheduleEntry[]
+  course           Course          @relation(fields: [course_id], references: [id], onDelete: Cascade)
 
   @@unique([course_id, batch, semester])
   @@map("sections")
 }
 
 model Student {
-  id            String @id @default(cuid())
-  reg_id        String @unique
+  id            String        @id @default(cuid())
+  reg_id        String        @unique
   name          String
   program       String
   batch         String
   department_id String
-
-  department Department    @relation(fields: [department_id], references: [id], onDelete: Restrict)
-  enrollments Enrollment[]
-  clashes    ClashRecord[]
+  clashes       ClashRecord[]
+  enrollments   Enrollment[]
+  department    Department    @relation(fields: [department_id], references: [id])
 
   @@index([department_id])
   @@map("students")
 }
 
 model Enrollment {
-  id         String @id @default(cuid())
+  id         String  @id @default(cuid())
   student_id String
   section_id String
-
-  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  section Section @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  section    Section @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  student    Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
   @@unique([student_id, section_id])
   @@index([student_id])
@@ -163,67 +145,61 @@ model Enrollment {
   @@map("enrollments")
 }
 
-// ── Exam scheduling ───────────────────────────────────────────────────────
-
 model Room {
-  id            String  @id @default(cuid())
-  name          String  @unique
-  department_id String?
-  capacity      Int
-
-  department       Department?      @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  id               String          @id @default(cuid())
+  name             String          @unique
+  department_id    String?
+  capacity         Int
+  department       Department?     @relation(fields: [department_id], references: [id])
   schedule_entries ScheduleEntry[]
 
   @@map("rooms")
 }
 
 model ExamCycle {
-  id         String   @id @default(cuid())
-  name       String
-  term       String
-  start_date DateTime
-  end_date   DateTime
-  status     String   @default("draft") // draft | published | archived
-  created_at DateTime @default(now())
-
-  time_slots      TimeSlot[]
+  id               String          @id @default(cuid())
+  name             String
+  term             String
+  start_date       DateTime
+  end_date         DateTime
+  status           String          @default("draft")
+  created_at       DateTime        @default(now())
+  clash_records    ClashRecord[]
   schedule_entries ScheduleEntry[]
-  clash_records   ClashRecord[]
+  time_slots       TimeSlot[]
 
   @@map("exam_cycles")
 }
 
 model TimeSlot {
-  id            String   @id @default(cuid())
-  label         String
-  start_time    DateTime
-  end_time      DateTime
-  exam_cycle_id String
-
-  exam_cycle       ExamCycle        @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  label            String
+  start_time       DateTime
+  end_time         DateTime
+  exam_cycle_id    String
   schedule_entries ScheduleEntry[]
+  exam_cycle       ExamCycle       @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
 
   @@unique([exam_cycle_id, label])
   @@map("time_slots")
 }
 
 model ScheduleEntry {
-  id            String   @id @default(cuid())
-  exam_cycle_id String
-  section_id    String
-  date          DateTime
-  time_slot_id  String
-  room_id       String
-  status        String   @default("scheduled") // scheduled | needs_review
-  created_by    String
-  created_at    DateTime @default(now())
-
-  exam_cycle            ExamCycle                 @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
-  section               Section                   @relation(fields: [section_id], references: [id], onDelete: Cascade)
-  time_slot             TimeSlot                  @relation(fields: [time_slot_id], references: [id], onDelete: Restrict)
-  room                  Room                      @relation(fields: [room_id], references: [id], onDelete: Restrict)
-  creator               User                      @relation("EntryCreator", fields: [created_by], references: [id])
+  id                      String                  @id @default(cuid())
+  exam_cycle_id           String
+  section_id              String
+  date                    DateTime
+  time_slot_id            String
+  room_id                 String
+  status                  String                  @default("scheduled")
+  created_by              String
+  created_at              DateTime                @default(now())
   invigilator_assignments InvigilatorAssignment[]
+  creator                 User                    @relation("EntryCreator", fields: [created_by], references: [id])
+  exam_cycle              ExamCycle               @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  room                    Room                    @relation(fields: [room_id], references: [id])
+  section                 Section                 @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  time_slot               TimeSlot                @relation(fields: [time_slot_id], references: [id])
 
   @@unique([exam_cycle_id, section_id])
   @@index([exam_cycle_id, date, time_slot_id])
@@ -233,51 +209,44 @@ model ScheduleEntry {
   @@map("schedule_entries")
 }
 
-// ── Invigilation ──────────────────────────────────────────────────────────
-
 model Invigilator {
-  id                        String   @id @default(cuid())
-  user_id                   String   @unique
+  id                        String                  @id @default(cuid())
+  user_id                   String                  @unique
   department_id             String
-  max_assignments_per_cycle Int      @default(5)
+  max_assignments_per_cycle Int                     @default(5)
   specialization_tags       String[]
-
-  user       User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  department Department              @relation(fields: [department_id], references: [id], onDelete: Restrict)
-  assignments InvigilatorAssignment[]
+  assignments               InvigilatorAssignment[]
+  department                Department              @relation(fields: [department_id], references: [id])
+  user                      User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("invigilators")
 }
 
 model InvigilatorAssignment {
-  id               String @id @default(cuid())
+  id                String        @id @default(cuid())
   schedule_entry_id String
   invigilator_id    String
-  status           String @default("assigned") // assigned | confirmed | declined
-
-  schedule_entry ScheduleEntry @relation(fields: [schedule_entry_id], references: [id], onDelete: Cascade)
-  invigilator   Invigilator   @relation(fields: [invigilator_id], references: [id], onDelete: Cascade)
+  status            String        @default("assigned")
+  invigilator       Invigilator   @relation(fields: [invigilator_id], references: [id], onDelete: Cascade)
+  schedule_entry    ScheduleEntry @relation(fields: [schedule_entry_id], references: [id], onDelete: Cascade)
 
   @@unique([schedule_entry_id, invigilator_id])
   @@index([invigilator_id])
   @@map("invigilator_assignments")
 }
 
-// ── Clash detection & overrides ───────────────────────────────────────────
-
 model ClashRecord {
-  id                 String   @id @default(cuid())
-  type               String // same_slot | same_day
+  id                 String    @id @default(cuid())
+  type               String
   exam_cycle_id      String
   student_id         String
   schedule_entry_ids String[]
-  severity           String // low | medium | high
-  status             String   @default("open") // open | overridden | resolved
+  severity           String
+  status             String    @default("open")
   override_reason    String?
-  created_at         DateTime @default(now())
-
-  exam_cycle ExamCycle @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
-  student    Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  created_at         DateTime  @default(now())
+  exam_cycle         ExamCycle @relation(fields: [exam_cycle_id], references: [id], onDelete: Cascade)
+  student            Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
   @@index([exam_cycle_id, status])
   @@index([student_id])
@@ -288,22 +257,19 @@ model OverrideRequest {
   id          String    @id @default(cuid())
   raised_by   String
   approved_by String?
-  target_type String // schedule_entry | clash_record
+  target_type String
   target_id   String
   reason      String
-  status      String    @default("pending") // pending | approved | rejected
+  status      String    @default("pending")
   remarks     String?
   created_at  DateTime  @default(now())
   decided_at  DateTime?
-
-  raiser  User   @relation("OverrideRaisedBy", fields: [raised_by], references: [id])
-  approver User? @relation("OverrideApprovedBy", fields: [approved_by], references: [id])
+  approver    User?     @relation("OverrideApprovedBy", fields: [approved_by], references: [id])
+  raiser      User      @relation("OverrideRaisedBy", fields: [raised_by], references: [id])
 
   @@index([status])
   @@map("override_requests")
 }
-
-// ── Notifications & audit ─────────────────────────────────────────────────
 
 model Notification {
   id         String    @id @default(cuid())
@@ -314,8 +280,7 @@ model Notification {
   read_at    DateTime?
   link       String?
   created_at DateTime  @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, read_at])
   @@map("notifications")
@@ -329,8 +294,7 @@ model AuditLog {
   performed_by String?
   timestamp    DateTime @default(now())
   meta         Json?
-
-  performer User? @relation("AuditPerformer", fields: [performed_by], references: [id], onDelete: SetNull)
+  performer    User?    @relation("AuditPerformer", fields: [performed_by], references: [id])
 
   @@index([target_type, target_id])
   @@index([performed_by])

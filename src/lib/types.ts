@@ -800,3 +800,78 @@ export interface MockExportRecord {
 }
 
 export type ExportType = MockExportRecord['type']
+
+// ── Student Self-Service (Step 29 API) ────────────────────────────────────
+
+export interface StudentProfile {
+  id: string
+  name: string
+  regId: string
+  program: string
+  department: string
+}
+
+export interface StudentExam {
+  id: string
+  date: string
+  day: string
+  timeSlotLabel: string
+  startTime: string
+  endTime: string
+  courseCode: string
+  courseTitle: string
+  roomName: string
+  seatNo: string
+  rollNo: string
+  status: ExamStatus
+}
+
+export interface StudentMeResponse {
+  student: StudentProfile
+  cycle: { id: string; name: string; term: string; status: string }
+  exams: StudentExam[]
+  hasClashes: boolean
+}
+
+// ── Export / Reporting (Step 29 API) ──────────────────────────────────────
+
+export interface ExportCycle {
+  id: string
+  name: string
+  term: string
+  status: string
+  start_date: string
+  end_date: string
+}
+
+export interface ExportDepartment {
+  id: string
+  code: string
+  name: string
+}
+
+export interface ExportScheduleEntry {
+  id: string
+  course_code: string
+  course_title: string
+  department_name: string
+  department_code: string
+  date: string
+  time_slot_label: string
+  room_name: string
+  enrolled_count: number
+  status: string
+  invigilators: Array<{ name: string }>
+}
+
+export interface ExportHistoryEntry {
+  id: string
+  actionType: string
+  exportType: string
+  label: string
+  filters: string
+  rowCount: number
+  filename: string
+  generatedBy: { id: string; name: string; email: string } | null
+  timestamp: string
+}
