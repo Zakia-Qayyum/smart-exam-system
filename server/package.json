@@ -23,6 +23,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jose": "^6.2.8",
+    "pdfkit": "^0.19.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "zod": "^4.4.3"
@@ -32,6 +33,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
+    "@types/pdfkit": "^0.17.6",
     "prisma": "^7.9.1",
     "tsx": "^4.23.9",
     "typescript": "^6.0.2"
