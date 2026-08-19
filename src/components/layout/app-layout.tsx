@@ -10,6 +10,7 @@ import { useSessionTimeout } from '@/lib/use-session-timeout'
 import { toast } from '@/components/ui/toast-store'
 
 const SIDEBAR_KEY = 'ses.sidebarCollapsed'
+const MOBILE_BREAKPOINT = 768
 
 /**
  * Keep the bell badge, ticker and Notifications Center live while signed in:
@@ -39,6 +40,7 @@ export function AppLayout() {
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
+      if (window.innerWidth < MOBILE_BREAKPOINT) return true
       return localStorage.getItem(SIDEBAR_KEY) === '1'
     } catch {
       return false
@@ -52,6 +54,16 @@ export function AppLayout() {
       /* ignore */
     }
   }, [collapsed])
+
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) setCollapsed(true)
+    }
+    handler(mql)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
 
   useNotificationsPolling()
 
@@ -68,6 +80,9 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-surface">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <header className="sticky top-0 z-40">
         <TopBar collapsed={collapsed} onToggleSidebar={() => setCollapsed((c) => !c)} />
         <AnnouncementTicker />
@@ -75,7 +90,7 @@ export function AppLayout() {
 
       <div className="flex">
         <Sidebar collapsed={collapsed} />
-        <main className="min-w-0 flex-1 px-5 py-6 sm:px-8">
+        <main id="main-content" className="min-w-0 flex-1 px-5 py-6 sm:px-8">
           <Outlet />
         </main>
       </div>

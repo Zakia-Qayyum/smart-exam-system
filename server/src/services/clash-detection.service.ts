@@ -69,6 +69,7 @@ export interface ClashListQuery {
   type?: 'same_slot' | 'same_day'
   status?: 'open' | 'overridden' | 'resolved' | 'all'
   student_id?: string
+  department_id?: string
   page?: number
   page_size?: number
 }
@@ -383,11 +384,15 @@ async function listClashes(query: ClashListQuery): Promise<ClashListResult> {
         ? query.status
         : 'open'
 
-  const where = {
+  const where: Record<string, unknown> = {
     exam_cycle_id: cycle.id,
     ...(query.type ? { type: query.type } : {}),
     ...(query.student_id ? { student_id: query.student_id } : {}),
     ...(status ? { status } : {}),
+  }
+
+  if (query.department_id) {
+    where.student = { department_id: query.department_id }
   }
 
   const page = Math.max(1, query.page ?? 1)

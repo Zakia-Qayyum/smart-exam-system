@@ -2,6 +2,7 @@ import { Router, type RequestHandler, type Request, type Response, type NextFunc
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requireDeptScope } from '../middleware/require-dept-scope.js'
 import { requirePermission } from '../middleware/require-permission.js'
 import { schedulingService } from '../services/scheduling.service.js'
 import { clashService } from '../services/clash-detection.service.js'
@@ -117,6 +118,7 @@ schedulingRouter.delete(
 schedulingRouter.get(
   '/schedule-entries',
   requireRole(...READ_ROLES),
+  requireDeptScope,
   (async (req: Request, res: Response, next: NextFunction) => {
     try {
       const q = req.query as Record<string, string | undefined>

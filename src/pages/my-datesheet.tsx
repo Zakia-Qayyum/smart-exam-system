@@ -18,7 +18,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { toast } from '@/components/ui/toast-store'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
-import { apiFetch } from '@/services/api-client'
+import { apiFetch, getAccessToken } from '@/services/api-client'
 import type { StudentMeResponse, StudentExam, StudentProfile } from '@/lib/types'
 
 const DAY_COLORS: Record<string, string> = {
@@ -85,9 +85,7 @@ export function MyDatesheetPage() {
     setDownloading(true)
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
-      const raw = localStorage.getItem('ses.auth')
-      const parsed = raw ? JSON.parse(raw) : null
-      const token = parsed?.state?.accessToken
+      const token = getAccessToken()
       const headers: Record<string, string> = {}
       if (token) headers.authorization = `Bearer ${token}`
 

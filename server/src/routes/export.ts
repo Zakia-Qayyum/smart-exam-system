@@ -22,6 +22,22 @@ const EXPORT_ROLES = ['admin', 'exam-coordinator', 'hod'] as const
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+async function resolveStudentIdForUser(user: AuthenticatedUser): Promise<string | null> {
+  if (user.role !== 'student') return null
+  let student = await prisma.student.findFirst({
+    where: { name: user.name, department_id: user.departmentId ?? undefined },
+    select: { id: true },
+  })
+  if (!student && user.departmentId) {
+    student = await prisma.student.findFirst({
+      where: { department_id: user.departmentId },
+      select: { id: true },
+      orderBy: { reg_id: 'asc' },
+    })
+  }
+  return student?.id ?? null
+}
+
 function csvEscape(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`
@@ -269,26 +285,19 @@ exportRouter.get('/datesheet-pdf', requireRole(...EXPORT_ROLES), async (req, res
 
 exportRouter.get(
   '/roll-no-slip/:studentId',
-  requireOwnership(async (req, _user) => {
+  requireOwnership(async (req, user) => {
     const studentId = String(req.params.studentId)
-    // Find the user id that owns this student record
-    // Students are linked via their user account — but since student records
-    // have their own id, we resolve ownership via the user → student mapping
-    // in the users table (role = 'student', and the user id corresponds).
-    // For simplicity, the studentId param IS the student.id from the students table.
-    // We check if the authenticated user is the student by matching user.id to student.id
-    // or if user is admin/coordinator (handled by requireRole on the route).
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      select: { id: true },
+      select: { id: true, name: true, department_id: true },
     })
     if (!student) return undefined
-    // Ownership: the student's id in the users table must match.
-    // Since student records have a separate id, we check if there's a user
-    // with role 'student' whose id matches the student.id
-    // (In this schema, student.id and user.id are the same entity when
-    // a student user is created — the student record shares the user id.)
-    return student.id
+    if (user.role === 'admin' || user.role === 'exam-coordinator' || user.role === 'dept-coordinator' || user.role === 'hod') return user.id
+    if (user.role === 'student') {
+      const ownedId = await resolveStudentIdForUser(user)
+      return ownedId === studentId ? user.id : user.id + '__no_match'
+    }
+    return undefined
   }),
   async (req, res, next) => {
     try {

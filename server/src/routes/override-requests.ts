@@ -13,6 +13,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requireDeptScope } from '../middleware/require-dept-scope.js'
 import { requirePermission } from '../middleware/require-permission.js'
 import {
   approveOverrideRequest,
@@ -44,7 +45,7 @@ const rejectBodySchema = z.object({
 })
 
 // ── GET /api/override-requests ─────────────────────────────────────────────
-overrideRequestsRouter.get('/', requireRole(...READ_ROLES), async (req, res) => {
+overrideRequestsRouter.get('/', requireRole(...READ_ROLES), requireDeptScope, async (req, res) => {
   const q = req.query as Record<string, string | undefined>
   const page = q.page ? Number.parseInt(q.page, 10) : undefined
   const page_size = q.page_size ? Number.parseInt(q.page_size, 10) : undefined
@@ -52,6 +53,7 @@ overrideRequestsRouter.get('/', requireRole(...READ_ROLES), async (req, res) => 
     await listOverrideRequests({
       status: q.status,
       target_type: q.target_type,
+      department_id: q.department || q.departmentId || undefined,
       page: page && !Number.isNaN(page) ? page : undefined,
       page_size: page_size && !Number.isNaN(page_size) ? page_size : undefined,
     }),

@@ -5,20 +5,9 @@
  * own inline fetch/download; this module is used by the My Datesheet page
  * for the roll-no-slip download.
  */
-import { ApiError } from '@/services/api-client'
+import { ApiError, getAccessToken } from '@/services/api-client'
 
 const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
-
-function getAccessToken(): string | null {
-  try {
-    const raw = localStorage.getItem('ses.auth')
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return parsed?.state?.accessToken ?? null
-  } catch {
-    return null
-  }
-}
 
 async function downloadBlob(path: string, filename: string): Promise<void> {
   const token = getAccessToken()

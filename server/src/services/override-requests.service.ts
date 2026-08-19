@@ -224,13 +224,40 @@ export async function raiseOverrideRequest(input: RaiseOverrideInput, raisedBy: 
   return toApiRequest(row, target)
 }
 
-export async function listOverrideRequests(query: { status?: string; target_type?: string; page?: number; page_size?: number }) {
+export async function listOverrideRequests(query: { status?: string; target_type?: string; department_id?: string; page?: number; page_size?: number }) {
   const status = query.status && isOverrideStatus(query.status) ? query.status : undefined
   const targetType = query.target_type && isOverrideTargetType(query.target_type) ? query.target_type : undefined
 
-  const where = {
+  const where: Record<string, unknown> = {
     ...(status ? { status } : {}),
     ...(targetType ? { target_type: targetType } : {}),
+  }
+
+  if (query.department_id) {
+    where.OR = [
+      {
+        target_type: 'schedule_entry',
+        target_id: {
+          in: (
+            await prisma.scheduleEntry.findMany({
+              where: { section: { course: { department_id: query.department_id } } },
+              select: { id: true },
+            })
+          ).map((e) => e.id),
+        },
+      },
+      {
+        target_type: 'clash_record',
+        target_id: {
+          in: (
+            await prisma.clashRecord.findMany({
+              where: { student: { department_id: query.department_id } },
+              select: { id: true },
+            })
+          ).map((c) => c.id),
+        },
+      },
+    ]
   }
 
   const page = Math.max(1, query.page ?? 1)

@@ -846,7 +846,7 @@ function MasterDataTab() {
                     <Button variant="secondary" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'publish' })} title="Publish this cycle">
                       <Megaphone className="h-3.5 w-3.5" /> Publish
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'delete' })} title="Delete this cycle">
+                    <Button variant="ghost" size="sm" onClick={() => setCycleDialog({ cycle: c, action: 'delete' })} title="Delete this cycle" aria-label="Delete this cycle">
                       <Trash2 className="h-4 w-4 text-ink-muted hover:text-danger" />
                     </Button>
                   </>
@@ -1098,7 +1098,7 @@ function AuditLogTab() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline">{filtered.length} events</Badge>
-          <Button variant="ghost" size="sm" onClick={() => void load()} title="Refresh the audit log">
+          <Button variant="ghost" size="sm" onClick={() => void load()} title="Refresh the audit log" aria-label="Refresh the audit log">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>

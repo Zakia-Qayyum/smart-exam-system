@@ -2,6 +2,7 @@ import { Router, type RequestHandler, type Request, type Response, type NextFunc
 import { z } from 'zod'
 import { validateBody } from '../lib/validate-body.js'
 import { requireAuth, requireRole } from '../middleware/require-auth.js'
+import { requireDeptScope } from '../middleware/require-dept-scope.js'
 import { clashService } from '../services/clash-detection.service.js'
 
 export const clashesRouter = Router()
@@ -24,6 +25,7 @@ const actionBodySchema = z.object({
 clashesRouter.get(
   '/',
   requireRole(...READ_ROLES),
+  requireDeptScope,
   (async (req: Request, res: Response, next: NextFunction) => {
     try {
       const q = req.query as Record<string, string | undefined>
@@ -35,6 +37,7 @@ clashesRouter.get(
             ? q.status
             : undefined,
         student_id: q.student || undefined,
+        department_id: q.department || q.departmentId || undefined,
         page: q.page ? Number.parseInt(q.page, 10) : undefined,
         page_size: q.page_size ? Number.parseInt(q.page_size, 10) : undefined,
       })

@@ -16,7 +16,7 @@ import { Select } from '@/components/ui/select'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast-store'
-import { apiFetch } from '@/services/api-client'
+import { apiFetch, getAccessToken } from '@/services/api-client'
 import type { ExportCycle, ExportDepartment, ExportScheduleEntry, ExportHistoryEntry } from '@/lib/types'
 
 type ExportType = 'schedule' | 'roll-no-slips'
@@ -49,6 +49,9 @@ export function ReportsPage() {
 
   // ── Download state ────────────────────────────────────────────────────
   const [downloading, setDownloading] = useState(false)
+
+  // ── Watermark state ─────────────────────────────────────────────────
+  const [showWatermark, setShowWatermark] = useState(false)
 
   // ── History ───────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ExportHistoryEntry[]>([])
@@ -115,9 +118,7 @@ export function ReportsPage() {
       const params = new URLSearchParams()
       if (selectedCycle) params.set('examCycleId', selectedCycle)
       if (selectedDept) params.set('departmentId', selectedDept)
-      const raw = localStorage.getItem('ses.auth')
-      const parsed = raw ? JSON.parse(raw) : null
-      const token = parsed?.state?.accessToken
+      const token = getAccessToken()
       const headers: Record<string, string> = {}
       if (token) headers.authorization = `Bearer ${token}`
       const res = await fetch(`${API_BASE}/api/export/csv?${params}`, { credentials: 'include', headers })
@@ -147,9 +148,7 @@ export function ReportsPage() {
       const params = new URLSearchParams()
       if (selectedCycle) params.set('examCycleId', selectedCycle)
       if (selectedDept) params.set('departmentId', selectedDept)
-      const raw = localStorage.getItem('ses.auth')
-      const parsed = raw ? JSON.parse(raw) : null
-      const token = parsed?.state?.accessToken
+      const token = getAccessToken()
       const headers: Record<string, string> = {}
       if (token) headers.authorization = `Bearer ${token}`
       const res = await fetch(`${API_BASE}/api/export/datesheet-pdf?${params}`, { credentials: 'include', headers })
@@ -300,11 +299,28 @@ export function ReportsPage() {
                 {downloading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
                 Download PDF
               </Button>
+              <label className="flex items-center gap-2 text-xs font-medium text-ink-muted select-none">
+                <input
+                  type="checkbox"
+                  checked={showWatermark}
+                  onChange={(e) => setShowWatermark(e.target.checked)}
+                  className="h-4 w-4 rounded border-line accent-navy"
+                  aria-label="Toggle confidential watermark"
+                />
+                Show watermark
+              </label>
             </div>
 
             {/* Live preview when rows loaded */}
             {previewRows.length > 0 ? (
-              <div className="datesheet-pdf rounded-lg border border-line bg-white p-4 text-ink print:border-0 print:p-0 print:shadow-none">
+              <div className="relative datesheet-pdf rounded-lg border border-line bg-white p-4 text-ink print:border-0 print:p-0 print:shadow-none">
+                {showWatermark && (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden print:z-0" aria-hidden="true">
+                    <span className="rotate-[-35deg] select-none text-[72px] font-black uppercase tracking-widest text-danger/15">
+                      {selectedCycleName.includes('Published') || selectedCycleName.includes('Final') ? 'Official' : 'Confidential'}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-start gap-4 border-b-2 border-navy pb-4 print:border-b print:pb-2">
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-gold bg-navy">
                     <span className="text-xs font-black text-gold">AU</span>
@@ -371,7 +387,7 @@ export function ReportsPage() {
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-navy" aria-hidden="true" />
             Export History
-            <Button variant="ghost" size="sm" onClick={refreshHistory} className="ml-auto" disabled={historyLoading}>
+            <Button variant="ghost" size="sm" onClick={refreshHistory} className="ml-auto" disabled={historyLoading} aria-label="Refresh export history">
               <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
             </Button>
           </CardTitle>

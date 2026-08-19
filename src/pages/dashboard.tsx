@@ -75,7 +75,7 @@ export function DashboardPage() {
             <CardTitle>Recent notifications</CardTitle>
             <Link
               to="/notifications"
-              className="flex items-center gap-1 text-xs font-bold text-navy hover:text-navy-deep"
+              className="flex items-center gap-1 text-xs font-bold text-navy hover:text-navy-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 rounded-md"
             >
               View all <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
@@ -87,7 +87,7 @@ export function DashboardPage() {
                 <Link
                   key={n.id}
                   to={n.link}
-                  className="flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface"
+                  className="flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface">
                     <Icon className={cn('h-4 w-4', kindTone[n.kind])} aria-hidden="true" />
@@ -123,7 +123,7 @@ export function DashboardPage() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className="group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft"
+                  className="group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   <Icon className="h-5 w-5 shrink-0 text-navy" aria-hidden="true" />
                   <span className="min-w-0">

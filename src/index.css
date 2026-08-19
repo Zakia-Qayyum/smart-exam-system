@@ -63,6 +63,32 @@
     background-color: var(--color-gold);
     color: var(--color-navy-deep);
   }
+
+  /* Skip to content link for keyboard-only users */
+  .skip-link {
+    position: absolute;
+    top: -100%;
+    left: 16px;
+    z-index: 9999;
+    padding: 8px 16px;
+    background: var(--color-navy);
+    color: var(--color-gold);
+    font-weight: 700;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+  }
+  .skip-link:focus {
+    top: 8px;
+  }
+
+  /* Respect user preference for reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @keyframes modalIn {

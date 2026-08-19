@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import { pinoHttp } from 'pino-http'
 import { env } from './config/env.js'
 import { logger } from './lib/logger.js'
@@ -20,47 +21,61 @@ import { exportRouter } from './routes/export.js'
 import { studentsRouter } from './routes/students.js'
 import { HttpError } from './lib/http-error.js'
 
+const isProd = env.NODE_ENV === 'production'
+
 export function createApp() {
   const app = express()
 
+  // ── Security headers ────────────────────────────────────────────────────
   app.disable('x-powered-by')
+  app.use(helmet({
+    contentSecurityPolicy: isProd ? undefined : false,
+    hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+  }))
 
+  // ── HTTP logging ────────────────────────────────────────────────────────
   app.use(pinoHttp({ logger }))
+
+  // ── CORS ────────────────────────────────────────────────────────────────
   app.use(
     cors({
       origin: env.CORS_ORIGIN.split(',').map((o) => o.trim()),
       credentials: true,
     }),
   )
+
   app.use(express.json({ limit: '1mb' }))
 
-  app.get('/', (_req, res) => {
-    res.json({
-      name: 'smart-exam-server',
-      message: 'Smart Exam Scheduling & Invigilation Management System',
-      health: '/api/health',
-    })
-  })
-
+  // ── Health (unauthenticated, safe) ──────────────────────────────────────
   app.use('/api/health', healthRouter)
+
+  // ── Auth routes (rate-limited at IP level) ──────────────────────────────
   app.use('/api/auth', ipRateLimit(), authRouter)
+
+  // ── Write rate limiter (60 req/min per IP on mutating endpoints) ────────
+  const writeRateLimit = ipRateLimit({ max: 60, windowMs: 60_000 })
+
+  // ── Protected API routes ────────────────────────────────────────────────
+  // Read routes get standard auth only; write routes also get rate limiting.
   app.use('/api/scheduling', schedulingRouter)
   app.use('/api/clashes', clashesRouter)
   app.use('/api/catalog', catalogRouter)
   app.use('/api/cycles', cyclesRouter)
   app.use('/api/invigilators', invigilatorsRouter)
-  app.use('/api/invigilator-assignments', invigilatorAssignmentsRouter)
+  app.use('/api/invigilator-assignments', writeRateLimit, invigilatorAssignmentsRouter)
   app.use('/api', adminRouter)
-  app.use('/api/override-requests', overrideRequestsRouter)
+  app.use('/api/override-requests', writeRateLimit, overrideRequestsRouter)
   app.use('/api/audit-log', auditLogRouter)
-  app.use('/api/notifications', notificationsRouter)
-  app.use('/api/export', exportRouter)
+  app.use('/api/notifications', writeRateLimit, notificationsRouter)
+  app.use('/api/export', writeRateLimit, exportRouter)
   app.use('/api/students', studentsRouter)
 
+  // ── 404 catch-all (no info leak) ────────────────────────────────────────
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })
   })
 
+  // ── Global error handler (never leak internals in production) ───────────
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
       res.status(err.status).json({
@@ -71,8 +86,10 @@ export function createApp() {
       return
     }
     logger.error({ err }, 'unhandled error')
-    const message = err instanceof Error ? err.message : 'Internal server error'
-    res.status(500).json({ error: 'Internal server error', message })
+    res.status(500).json({
+      error: 'Internal server error',
+      ...(isProd ? {} : { message: err instanceof Error ? err.message : 'Unknown error' }),
+    })
   })
 
   return app

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
-import { Lock } from 'lucide-react'
+import { Lock, ArrowLeft } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
-import { homeByRole } from '@/config/roles'
+import { homeByRole, roleLabels } from '@/config/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 export function AccessDenied() {
@@ -13,12 +13,21 @@ export function AccessDenied() {
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-danger-light">
         <Lock className="h-8 w-8 text-danger" aria-hidden="true" />
       </div>
-      <h1 className="mt-5 text-lg font-bold text-ink">You don&apos;t have access</h1>
+      <h1 className="mt-5 text-lg font-bold text-ink">Access Restricted</h1>
       <p className="mt-2 text-sm leading-5 text-ink-muted">
-        This area is only available to specific roles. If you believe this is a mistake, contact
-        your administrator.
+        {role && (
+          <>
+            You are signed in as <strong>{roleLabels[role]}</strong>.
+          </>
+        )}{' '}
+        This page requires a different permission level. If you believe you
+        should have access, contact your administrator.
       </p>
-      <Link to={home} className={buttonVariants({ variant: 'primary', className: 'mt-6' })}>
+      <Link
+        to={home}
+        className={buttonVariants({ variant: 'primary', className: 'mt-6' })}
+      >
+        <ArrowLeft className="mr-1.5 h-4 w-4" aria-hidden="true" />
         Go to my dashboard
       </Link>
     </div>
