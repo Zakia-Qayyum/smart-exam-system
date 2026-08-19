@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationsStore } from '@/stores/notifications-store'
 import { kindIcon, kindTone, timeAgo, firstName } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
+import { staggerDelay, useCountUp } from '@/lib/motion'
 import type { DashboardStat } from '@/lib/types'
 
 const statTone: Record<DashboardStat['tone'], string> = {
@@ -18,6 +19,18 @@ const statTone: Record<DashboardStat['tone'], string> = {
   danger: 'bg-danger-light text-danger',
   warning: 'bg-warning-light text-warning-deep',
   info: 'bg-info-light text-info',
+}
+
+const leadingNum = (s: string) => {
+  const m = s.match(/^(\d+)/)
+  return m ? Number(m[1]) : null
+}
+
+function AnimatedStatValue({ value }: { value: string }) {
+  const n = leadingNum(value)
+  const animated = useCountUp(n ?? 0, 600)
+  if (n === null) return <>{value}</>
+  return <>{value.replace(String(n), animated)}</>
 }
 
 export function DashboardPage() {
@@ -51,15 +64,15 @@ export function DashboardPage() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.label} className="flex items-center gap-4">
+        {stats.map((stat, i) => (
+          <Card key={stat.label} className="flex animate-stagger-item items-center gap-4" style={staggerDelay(i)}>
             <span
               className={cn(
                 'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black',
                 statTone[stat.tone],
               )}
             >
-              {stat.value}
+              <AnimatedStatValue value={stat.value} />
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-ink">{stat.label}</p>
@@ -81,13 +94,14 @@ export function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="space-y-1 pt-1">
-            {recent.map((n) => {
+            {recent.map((n, i) => {
               const Icon = kindIcon[n.kind]
               return (
                 <Link
                   key={n.id}
                   to={n.link}
-                  className="flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  className="animate-stagger-item flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  style={staggerDelay(i + 4)}
                 >
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface">
                     <Icon className={cn('h-4 w-4', kindTone[n.kind])} aria-hidden="true" />
@@ -117,13 +131,14 @@ export function DashboardPage() {
             <CardTitle>Quick actions</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {quickActions.map((item) => {
+            {quickActions.map((item, i) => {
               const Icon = item.icon
               return (
                 <Link
                   key={item.path}
                   to={item.path}
-                  className="group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  className="animate-stagger-item group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  style={staggerDelay(i + 4)}
                 >
                   <Icon className="h-5 w-5 shrink-0 text-navy" aria-hidden="true" />
                   <span className="min-w-0">

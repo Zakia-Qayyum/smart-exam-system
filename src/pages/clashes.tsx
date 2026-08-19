@@ -526,7 +526,7 @@ export function ClashesPage() {
             <span
               className={cn(
                 'flex h-11 w-11 items-center justify-center rounded-full',
-                openCount > 0 ? 'bg-danger-light' : 'bg-success-light',
+                openCount > 0 ? 'bg-danger-light animate-badge-pulse' : 'bg-success-light',
               )}
             >
               <Siren

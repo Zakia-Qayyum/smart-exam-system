@@ -14,6 +14,7 @@ import { useInvigilatorsStore } from '@/stores/invigilators-store'
 import { onScheduleChanged } from '@/lib/schedule-sync'
 import { firstName, kindIcon, kindTone, timeAgo } from '@/lib/visuals'
 import { cn } from '@/lib/utils'
+import { staggerDelay, useCountUp } from '@/lib/motion'
 import type { AuthUser, CoordinatorKpi, NotificationKind } from '@/lib/types'
 
 const kpiTone: Record<CoordinatorKpi['tone'], string> = {
@@ -42,16 +43,29 @@ const activityBorder: Record<NotificationKind, string> = {
   info: 'border-l-ink-muted',
 }
 
-function KpiCard({ kpi }: { kpi: CoordinatorKpi }) {
+const leadingNum = (s: string) => {
+  const m = s.match(/^(\d+)/)
+  return m ? Number(m[1]) : null
+}
+
+function AnimatedKpiValue({ value }: { value: string }) {
+  const n = leadingNum(value)
+  const animated = useCountUp(n ?? 0, 600)
+  if (n === null) return <>{value}</>
+  return <>{value.replace(String(n), animated)}</>
+}
+
+function KpiCard({ kpi, index }: { kpi: CoordinatorKpi; index: number }) {
   const Icon = kpi.icon
   const isDanger = kpi.tone === 'danger'
   const pct = kpi.fraction ? Math.round((kpi.fraction.current / kpi.fraction.total) * 100) : 0
   return (
     <Card
       className={cn(
-        'relative flex flex-col gap-3 p-5',
+        'relative flex animate-stagger-item flex-col gap-3 p-5',
         isDanger && 'border-danger/40 bg-danger/[0.03]',
       )}
+      style={staggerDelay(index)}
     >
       <div className="flex items-start justify-between gap-3">
         <span
@@ -62,13 +76,13 @@ function KpiCard({ kpi }: { kpi: CoordinatorKpi }) {
         >
           <Icon className="h-5 w-5" aria-hidden="true" />
         </span>
-        {isDanger && <Badge variant="danger" dot>Needs attention</Badge>}
+        {isDanger && <Badge variant="danger" dot className="animate-badge-pulse">Needs attention</Badge>}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-bold uppercase tracking-wide text-ink-muted">
           {kpi.label}
         </p>
-        <p className="mt-0.5 text-2xl font-black tracking-tight text-ink">{kpi.value}</p>
+        <p className="mt-0.5 text-2xl font-black tracking-tight text-ink"><AnimatedKpiValue value={kpi.value} /></p>
         <p className="mt-0.5 truncate text-xs text-ink-muted">{kpi.hint}</p>
       </div>
       {kpi.fraction && (
@@ -80,7 +94,7 @@ function KpiCard({ kpi }: { kpi: CoordinatorKpi }) {
           aria-valuemax={100}
           aria-label={`${kpi.fraction.current} of ${kpi.fraction.total}`}
         >
-          <div className={cn('h-full rounded-full', barTone[kpi.tone])} style={{ width: `${pct}%` }} />
+          <div className={cn('h-full rounded-full kpi-progress-bar', barTone[kpi.tone])} style={{ width: `${pct}%` }} />
         </div>
       )}
     </Card>
@@ -107,10 +121,11 @@ function ExamDaysStrip() {
               key={day.id}
               to="/calendar"
               className={cn(
-                'flex w-[5.5rem] shrink-0 flex-col items-center gap-1.5 rounded-lg border border-line px-2 py-3 text-center transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft',
+                'animate-stagger-item flex w-[5.5rem] shrink-0 flex-col items-center gap-1.5 rounded-lg border border-line px-2 py-3 text-center transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft',
                 i === 0 && 'ring-1 ring-gold/60',
                 day.hasClash && 'border-danger/40',
               )}
+              style={staggerDelay(i)}
             >
               <span className="text-[11px] font-bold uppercase tracking-wide text-ink-muted">
                 {day.dayLabel}
@@ -158,15 +173,16 @@ function ActivityFeed() {
       </CardHeader>
       <CardContent className="pt-1">
         <ul className="space-y-1">
-          {sorted.map((item) => {
+          {sorted.map((item, i) => {
             const Icon = kindIcon[item.kind]
             return (
               <li
                 key={item.id}
                 className={cn(
-                  'flex items-start gap-3 rounded-md border-l-2 px-3 py-2.5 transition-colors hover:bg-surface',
+                  'animate-stagger-item flex items-start gap-3 rounded-md border-l-2 px-3 py-2.5 transition-colors hover:bg-surface',
                   activityBorder[item.kind],
                 )}
+                style={staggerDelay(i)}
               >
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface">
                   <Icon className={cn('h-4 w-4', kindTone[item.kind])} aria-hidden="true" />
@@ -201,14 +217,15 @@ function ClashesCard() {
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>Clashes Requiring Attention</CardTitle>
-        <Badge variant="danger" dot>{clashes.length}</Badge>
+        <Badge variant="danger" dot className="animate-badge-pulse">{clashes.length}</Badge>
       </CardHeader>
       <CardContent className="pt-1">
         <ul className="space-y-2">
-          {clashes.map((c) => (
+          {clashes.map((c, i) => (
             <li
               key={c.id}
-              className="flex items-center gap-3 rounded-md border border-line bg-card px-3 py-2.5"
+              className="animate-stagger-item flex items-center gap-3 rounded-md border border-line bg-card px-3 py-2.5"
+              style={staggerDelay(i)}
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-ink">
@@ -253,7 +270,7 @@ function QuickActionsCard() {
         <CardTitle>Quick Actions</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 pt-1">
-        {quickActions.map((action) => {
+        {quickActions.map((action, i) => {
           const Icon = action.icon
           const inner = (
             <>
@@ -269,9 +286,10 @@ function QuickActionsCard() {
             </>
           )
           const className =
-            'group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft'
+            'animate-stagger-item group flex items-center gap-3 rounded-md border border-line bg-card px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-gold/50 hover:shadow-soft'
+          const style = staggerDelay(i)
           return action.path ? (
-            <Link key={action.id} to={action.path} className={className}>
+            <Link key={action.id} to={action.path} className={className} style={style}>
               {inner}
             </Link>
           ) : (
@@ -280,6 +298,7 @@ function QuickActionsCard() {
               type="button"
               onClick={() => notifyComing(action.label)}
               className={cn(className, 'w-full text-left')}
+              style={style}
             >
               {inner}
             </button>
@@ -425,8 +444,8 @@ export function ExamCoordinatorDashboard({ user }: { user: AuthUser }) {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((kpi) => (
-          <KpiCard key={kpi.id} kpi={kpi} />
+        {kpis.map((kpi, i) => (
+          <KpiCard key={kpi.id} kpi={kpi} index={i} />
         ))}
       </div>
 

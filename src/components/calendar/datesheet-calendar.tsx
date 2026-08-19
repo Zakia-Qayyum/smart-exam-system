@@ -35,6 +35,7 @@ import type {
   SchedulingCatalog,
 } from '@/lib/types'
 import { onScheduleChanged, notifyScheduleChanged } from '@/lib/schedule-sync'
+import { staggerDelay } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
 type ViewMode = 'month' | 'week'
@@ -402,7 +403,7 @@ function MonthCell({
       onClick={() => onSelect(day)}
       disabled={!inWindow}
       className={cn(
-        'group flex min-h-24 flex-col rounded-lg border p-2 text-left transition-all duration-150',
+        'calendar-day-cell group flex min-h-24 flex-col rounded-lg border p-2 text-left transition-all duration-150',
         inWindow
           ? 'cursor-pointer border-line bg-card hover:border-navy/50 hover:shadow-soft'
           : 'border-transparent bg-surface/60',
@@ -779,10 +780,10 @@ export function DatesheetCalendar({ readOnly = false }: { readOnly?: boolean }) 
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryChip label="Total exams" value={summary?.summary.total_exams ?? 0} />
-        <SummaryChip label="Rooms in use" value={summary?.summary.rooms_used ?? 0} />
-        <SummaryChip label="Needs review" value={summary?.summary.needs_review ?? 0} tone="danger" />
-        <SummaryChip label="Open clashes" value={summary?.summary.same_slot ?? 0} tone="danger" />
+        <SummaryChip label="Total exams" value={summary?.summary.total_exams ?? 0} index={0} />
+        <SummaryChip label="Rooms in use" value={summary?.summary.rooms_used ?? 0} index={1} />
+        <SummaryChip label="Needs review" value={summary?.summary.needs_review ?? 0} tone="danger" index={2} />
+        <SummaryChip label="Open clashes" value={summary?.summary.same_slot ?? 0} tone="danger" index={3} />
       </div>
 
       <div className="mt-5 rounded-lg border border-line bg-card p-4">
@@ -934,9 +935,12 @@ export function DatesheetCalendar({ readOnly = false }: { readOnly?: boolean }) 
   )
 }
 
-function SummaryChip({ label, value, tone }: { label: string; value: number; tone?: 'danger' }) {
+function SummaryChip({ label, value, tone, index }: { label: string; value: number; tone?: 'danger'; index?: number }) {
   return (
-    <div className="rounded-lg border border-line bg-card p-3">
+    <div
+      className="animate-stagger-item rounded-lg border border-line bg-card p-3"
+      style={index !== undefined ? staggerDelay(index, 50) : undefined}
+    >
       <p className="text-xs font-medium text-ink-muted">{label}</p>
       <p className={cn('mt-0.5 text-2xl font-black', tone === 'danger' ? 'text-danger' : 'text-navy')}>{value}</p>
     </div>

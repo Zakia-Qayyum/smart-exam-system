@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react'
 import { useToastStore, type ToastItem } from './toast-store'
@@ -13,47 +13,63 @@ const icons = {
 
 function ToastCard({ toast }: { toast: ToastItem }) {
   const remove = useToastStore((s) => s.remove)
+  const [closing, setClosing] = useState(false)
+  const duration = toast.duration ?? 4000
 
   useEffect(() => {
-    const timer = setTimeout(() => remove(toast.id), toast.duration ?? 4000)
+    const timer = setTimeout(() => setClosing(true), duration)
     return () => clearTimeout(timer)
-  }, [toast.id, toast.duration, remove])
+  }, [duration])
+
+  useEffect(() => {
+    if (!closing) return
+    const timer = setTimeout(() => remove(toast.id), 150)
+    return () => clearTimeout(timer)
+  }, [closing, toast.id, remove])
 
   return (
     <div
       role="status"
       className={cn(
-        'pointer-events-auto flex w-80 items-start gap-3 rounded-md border border-line bg-card p-3.5 shadow-lift',
-        'animate-[toastIn_180ms_ease-out]',
+        'pointer-events-auto relative w-80 overflow-hidden rounded-md border border-line bg-card shadow-lift',
+        closing ? 'animate-exit-right' : 'animate-[toastIn_180ms_ease-out]',
       )}
     >
-      <span className="mt-0.5 shrink-0">{icons[toast.variant]}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-ink">{toast.title}</p>
-        {toast.description && (
-          <p className="mt-0.5 text-sm text-ink-muted">{toast.description}</p>
-        )}
-        {toast.action && (
-          <button
-            type="button"
-            onClick={() => {
-              remove(toast.id)
-              toast.action?.onClick()
-            }}
-            className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-navy/30 px-3 text-xs font-semibold text-navy transition-colors hover:bg-navy hover:text-white"
-          >
-            {toast.action.label}
-          </button>
-        )}
+      <div className="flex items-start gap-3 p-3.5">
+        <span className="mt-0.5 shrink-0">{icons[toast.variant]}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink">{toast.title}</p>
+          {toast.description && (
+            <p className="mt-0.5 text-sm text-ink-muted">{toast.description}</p>
+          )}
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => {
+                setClosing(true)
+                toast.action?.onClick()
+              }}
+              className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-navy/30 px-3 text-xs font-semibold text-navy transition-colors hover:bg-navy hover:text-white"
+            >
+              {toast.action.label}
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setClosing(true)}
+          aria-label="Dismiss notification"
+          className="shrink-0 rounded p-0.5 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => remove(toast.id)}
-        aria-label="Dismiss notification"
-        className="shrink-0 rounded p-0.5 text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-      >
-        <X className="h-4 w-4" />
-      </button>
+      <span
+        className="absolute bottom-0 left-0 h-0.5 bg-navy/20"
+        style={{
+          animation: `toastShrink ${duration}ms linear forwards`,
+        }}
+      />
     </div>
   )
 }

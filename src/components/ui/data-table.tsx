@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { staggerDelay } from '@/lib/motion'
 import { EmptyState } from './empty-state'
 
 export interface Column<T> {
@@ -122,7 +123,9 @@ export function DataTable<T>({
                 className={cn(
                   'border-b border-line transition-colors last:border-b-0 hover:bg-surface/60',
                   i % 2 === 1 && 'bg-surface/30',
+                  i < 8 && 'animate-stagger-item',
                 )}
+                style={i < 8 ? staggerDelay(i, 40) : undefined}
               >
                 {columns.map((col) => (
                   <td
