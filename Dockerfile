@@ -38,7 +38,7 @@ COPY --from=backend-build /app/dist ./dist/
 COPY --from=backend-build /app/src/generated ./src/generated/
 
 # Frontend static build
-COPY --from=frontend-build /app/dist/public ./dist/public/
+COPY --from=frontend-build /app/dist ./dist/public/
 
 # Startup script
 COPY deploy-start.sh ./
