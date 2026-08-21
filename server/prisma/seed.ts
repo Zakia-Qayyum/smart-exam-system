@@ -134,11 +134,13 @@ const specializationTags = [
 
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('⏳ Seeding smart_exam database…')
+  const existingDepts = await prisma.department.count()
+  if (existingDepts > 0) {
+    console.log('⏭️  Database already seeded, skipping.')
+    return
+  }
 
-  await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "users", "departments", "programs", "courses", "sections", "students", "enrollments", "rooms", "exam_cycles", "time_slots", "schedule_entries", "invigilators", "invigilator_assignments", "clash_records", "override_requests", "notifications", "audit_log" CASCADE',
-  )
+  console.log('⏳ Seeding smart_exam database…')
 
   // 1. Departments & programs
   await prisma.department.createMany({

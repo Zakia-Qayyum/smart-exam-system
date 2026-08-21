@@ -1,0 +1,13 @@
+node_modules
+server/node_modules
+server/dist
+dist
+.git
+.github
+*.md
+*.txt
+.env
+.env.*
+railway-login.txt
+railway-login-err.txt
+railway-output.txt
