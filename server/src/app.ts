@@ -1,6 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { pinoHttp } from 'pino-http'
 import { env } from './config/env.js'
 import { logger } from './lib/logger.js'
@@ -70,9 +72,22 @@ export function createApp() {
   app.use('/api/export', writeRateLimit, exportRouter)
   app.use('/api/students', studentsRouter)
 
+  // ── Serve frontend static files in production ─────────────────────────
+  const __dirname = path.dirname(fileURLToPath(import.meta.url))
+  const publicDir = path.resolve(__dirname, 'public')
+  if (isProd) {
+    app.use(express.static(publicDir))
+  }
+
   // ── 404 catch-all (no info leak) ────────────────────────────────────────
   app.use((_req, res) => {
-    res.status(404).json({ error: 'Not found' })
+    if (isProd) {
+      res.sendFile(path.join(publicDir, 'index.html'), (err) => {
+        if (err) res.status(404).json({ error: 'Not found' })
+      })
+    } else {
+      res.status(404).json({ error: 'Not found' })
+    }
   })
 
   // ── Global error handler (never leak internals in production) ───────────
