@@ -15,6 +15,8 @@ RUN npm ci
 COPY server/ .
 RUN npx prisma generate
 RUN npm run build
+# Patch Prisma-generated extensionless ESM imports for Node.js compatibility
+RUN node -e "const fs=require('fs'),p=require('path');!function f(d){for(const x of fs.readdirSync(d,{withFileTypes:true})){const q=p.join(d,x.name);x.isDirectory()?f(q):x.name.endsWith('.js')&&fs.writeFileSync(q,fs.readFileSync(q,'utf8').replace(/(from\s+['\"])(\.\.?\/[^'\"]+?)(['\"])/g,(_,a,b,c)=>b.endsWith('.js')?a+b+c:a+b+'.js'+c))}}('dist/generated')"
 
 # ── Production image ───────────────────────────────────────────────────
 FROM node:20-alpine
