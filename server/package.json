@@ -24,11 +24,10 @@
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jose": "^6.2.8",
-    "nodemailer": "^6.10.1",
+    "resend": "^4.2.0",
     "pdfkit": "^0.19.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
-    "resend": "^6.22.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -36,7 +35,6 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
-    "@types/nodemailer": "^6.4.24",
     "@types/pdfkit": "^0.17.6",
     "prisma": "^7.9.1",
     "tsx": "^4.23.9",
