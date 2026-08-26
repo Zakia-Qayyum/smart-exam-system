@@ -35,6 +35,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
 
   // ── SMTP (used when OTP_SENDER=email) ──────────────────────────────────
+  RESEND_API_KEY: z.string().default(''),  
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: z.string().default(''),
