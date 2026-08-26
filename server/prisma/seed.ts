@@ -303,7 +303,7 @@ async function main() {
       department_id: deptMap.get('CS'),
       status: 'active',
       must_change_password: false,
-      mfa_enabled: false,
+      mfa_enabled: true,
     },
   })
 

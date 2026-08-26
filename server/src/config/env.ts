@@ -28,11 +28,21 @@ const envSchema = z.object({
   // Storage backend. 'memory' is for development; 'redis' can be added later
   // behind the same OtpStore interface.
   OTP_PROVIDER: z.enum(['memory', 'redis']).default('memory'),
-  OTP_SENDER: z.enum(['console']).default('console'),
+  OTP_SENDER: z.enum(['console', 'email']).default('console'),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(600),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+
+  // ── SMTP (used when OTP_SENDER=email) ──────────────────────────────────
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+  SMTP_FROM: z.string().default(''),
+  // When set, all OTP emails are redirected to this address instead of the
+  // user's database email. Useful for demos where seed emails are fictitious.
+  SMTP_OVERRIDE_TO: z.string().default(''),
 
   // ── Rate limiting (per IP, sliding window) ───────────────────────────────
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
