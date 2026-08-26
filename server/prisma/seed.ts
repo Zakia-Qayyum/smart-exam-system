@@ -132,8 +132,84 @@ const specializationTags = [
   'management', 'finance', 'marketing', 'software-architecture', 'testing',
 ]
 
+// ── Demo account repair (idempotent) ──────────────────────────────────────
+// Ensures the 4 demo accounts exist with correct password_hash and
+// mfa_enabled on every deploy, even when the full seed is skipped.
+async function repairDemoAccounts() {
+  const csDept = await prisma.department.findUnique({ where: { code: 'CS' }, select: { id: true } })
+  if (!csDept) {
+    console.log('⏭️  No partial seed detected, deferring demo-account repair to full seed.')
+    return
+  }
+
+  console.log('🔧 Repairing demo accounts…')
+
+  await prisma.user.upsert({
+    where:  { email: 'admin@airuni.edu.pk' },
+    update: { password_hash: PASSWORD, mfa_enabled: true },
+    create: {
+      name: 'System Administrator',
+      email: 'admin@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'admin',
+      status: 'active',
+      must_change_password: false,
+      mfa_enabled: true,
+    },
+  })
+
+  await prisma.user.upsert({
+    where:  { email: 'coordinator@airuni.edu.pk' },
+    update: { password_hash: PASSWORD, mfa_enabled: true },
+    create: {
+      name: 'Exam Coordinator',
+      email: 'coordinator@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'coordinator',
+      department_id: csDept.id,
+      status: 'active',
+      must_change_password: false,
+      mfa_enabled: true,
+    },
+  })
+
+  await prisma.user.upsert({
+    where:  { email: 'usman.tariq@airuni.edu.pk' },
+    update: { password_hash: PASSWORD, mfa_enabled: true },
+    create: {
+      name: 'Usman Tariq',
+      email: 'usman.tariq@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'faculty',
+      department_id: csDept.id,
+      status: 'active',
+      must_change_password: true,
+      mfa_enabled: true,
+    },
+  })
+
+  await prisma.user.upsert({
+    where:  { email: 'au2024cs042@airuni.edu.pk' },
+    update: { password_hash: PASSWORD, mfa_enabled: true },
+    create: {
+      name: 'Fatima Noor',
+      email: 'au2024cs042@airuni.edu.pk',
+      password_hash: PASSWORD,
+      role: 'student',
+      department_id: csDept.id,
+      status: 'active',
+      must_change_password: false,
+      mfa_enabled: true,
+    },
+  })
+
+  console.log('✅ Demo accounts repaired.')
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
+  await repairDemoAccounts()
+
   const existingDepts = await prisma.department.count()
   if (existingDepts > 0) {
     console.log('⏭️  Database already seeded, skipping.')
