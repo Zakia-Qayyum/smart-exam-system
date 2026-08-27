@@ -146,7 +146,7 @@ async function repairDemoAccounts() {
 
   await prisma.user.upsert({
     where:  { email: 'admin@airuni.edu.pk' },
-    update: { password_hash: PASSWORD, mfa_enabled: true },
+    update: { password_hash: PASSWORD, mfa_enabled: false },
     create: {
       name: 'System Administrator',
       email: 'admin@airuni.edu.pk',
@@ -154,13 +154,13 @@ async function repairDemoAccounts() {
       role: 'admin',
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
   await prisma.user.upsert({
     where:  { email: 'coordinator@airuni.edu.pk' },
-    update: { password_hash: PASSWORD, mfa_enabled: true },
+    update: { password_hash: PASSWORD, mfa_enabled: false },
     create: {
       name: 'Exam Coordinator',
       email: 'coordinator@airuni.edu.pk',
@@ -169,13 +169,13 @@ async function repairDemoAccounts() {
       department_id: csDept.id,
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
   await prisma.user.upsert({
     where:  { email: 'usman.tariq@airuni.edu.pk' },
-    update: { password_hash: PASSWORD, mfa_enabled: true },
+    update: { password_hash: PASSWORD, mfa_enabled: false },
     create: {
       name: 'Usman Tariq',
       email: 'usman.tariq@airuni.edu.pk',
@@ -184,13 +184,13 @@ async function repairDemoAccounts() {
       department_id: csDept.id,
       status: 'active',
       must_change_password: true,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
   await prisma.user.upsert({
     where:  { email: 'au2024cs042@airuni.edu.pk' },
-    update: { password_hash: PASSWORD, mfa_enabled: true },
+    update: { password_hash: PASSWORD, mfa_enabled: false },
     create: {
       name: 'Fatima Noor',
       email: 'au2024cs042@airuni.edu.pk',
@@ -199,7 +199,7 @@ async function repairDemoAccounts() {
       department_id: csDept.id,
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
@@ -266,7 +266,7 @@ async function main() {
       role: 'admin',
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
@@ -279,7 +279,7 @@ async function main() {
       department_id: deptMap.get('CS'),
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
@@ -293,7 +293,7 @@ async function main() {
       department_id: deptMap.get('CS'),
       status: 'active',
       must_change_password: true,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
   await prisma.invigilator.create({
@@ -379,7 +379,7 @@ async function main() {
       department_id: deptMap.get('CS'),
       status: 'active',
       must_change_password: false,
-      mfa_enabled: true,
+      mfa_enabled: false,
     },
   })
 
